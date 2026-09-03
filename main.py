@@ -6,10 +6,13 @@ from tpps.evidence import Evidence, Reviewed
 from tpps.examples import (complex_registry, example_registry, plan_a, plan_b,
                            plan_c_failure, theorem6_completion)
 from tpps.render import Register, render
-from tpps.store import MockStore
+from tpps.config import load_config, make_store
 
 
 def main():
+    settings = load_config()
+    print(f"== config: llm={settings.llm.provider}/{settings.llm.model} "
+          f"kernel={settings.kernel.env_hash} store={settings.store.owner}")
     reg = example_registry()
     print("== Plan A check:", T.check_plan(plan_a(), reg).ok)
     print("== Plan B check:", T.check_plan(plan_b(), reg).ok)
@@ -24,7 +27,7 @@ def main():
     print("--- Liouville (annotated) ---")
     print(render(liouv, "constant", req, Register.ANNOTATED))
 
-    store = MockStore()
+    store = make_store(settings)
     rec = store.commit_gate_typing_pass(
         plan_a().to_atoms(),
         lambda: ((r := T.check_plan(plan_a(), reg)).ok, r.diagnostic))

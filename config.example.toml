@@ -1,0 +1,24 @@
+# Copy to config.toml and adjust. config.toml is gitignored: never put secrets here.
+# Secrets are supplied via environment variables (see api_key_env below).
+
+[llm]
+provider = "openai-compatible"
+model = "gpt-4o-mini"
+base_url = "https://api.openai.com/v1"
+# Name of the env var holding the API key. The key itself never lives in a file.
+api_key_env = "TPPS_LLM_API_KEY"
+timeout_s = 60.0
+max_retries = 2
+
+[kernel]
+system = "lean4+mathlib"
+env_hash = "mock-env-hash-0000"
+# RPC/CLI endpoint for a real Lean backend. Empty means the in-process mock.
+endpoint = ""
+
+[store]
+owner = "tpps-prototype"
+backend = "mock"
+
+[app]
+log_level = "INFO"

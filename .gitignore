@@ -12,3 +12,6 @@ wheels/
 # Local-only docs: agent instructions and the requirements draft stay untracked
 AGENTS.md
 SRS_Typed_Proof_Plans.md
+
+# Local setup: copy config.example.toml; secrets come from env vars only
+config.toml
