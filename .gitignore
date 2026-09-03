@@ -1,0 +1,14 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Local-only docs: agent instructions and the requirements draft stay untracked
+AGENTS.md
+SRS_Typed_Proof_Plans.md
