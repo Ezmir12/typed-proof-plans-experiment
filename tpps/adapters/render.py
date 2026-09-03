@@ -7,8 +7,8 @@ from __future__ import annotations
 
 from enum import Enum
 
-from .evidence import Evidence, is_closed
-from .plan import Layer, Plan
+from tpps.core.evidence import Evidence, is_closed
+from tpps.core.plan import Layer, Plan
 
 
 class Register(Enum):

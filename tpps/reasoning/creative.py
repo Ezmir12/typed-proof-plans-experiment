@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .plan import Plan
-from .stmt import App, BVar, Const, Shape, Term, Var, apply_subst, unify_exact
+from tpps.core.plan import Plan
+from tpps.core.stmt import App, BVar, Const, Shape, Term, Var, apply_subst, unify_exact
 
 
 # PLN annotation quarantined from evidence aggregation.

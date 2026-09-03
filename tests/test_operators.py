@@ -1,23 +1,23 @@
 """Operator tests: creative, induce, extract, render, kernel, llm, store."""
 import pytest
 
-from tpps import creative as C
-from tpps import render as R
-from tpps.creative import (CRITIC_CLASSES, Alignment, FailureCertificate,
-                           SignatureMorphism, align_by_schema, anti_unify_shapes,
-                           backward_chain, blend, BlendRejected, classify_residual,
-                           propose_barrier, score_alignment)
-from tpps.evidence import Evidence, Formal, Reviewed
-from tpps.extract import (MISTRANSLATION_KINDS, ExtractedNode, accept,
-                          build_candidate, semantic_review)
-from tpps.induce import (Strategy, complete_lgg, corrected_schema_name)
-from tpps.kernel import Certificate, KernelInterface, recheck
-from tpps.llm import LlmClient, admit_fragment
-from tpps.plan import MethodInstance, Plan, StmtNode
-from tpps.render import Register, lint_rendered, render, smooth_with_llm
-from tpps.schema import CondTag, Condition
-from tpps.stmt import App, Const, Shape, Stmt, Var
-from tpps.store import MockStore
+from tpps.reasoning import creative as C
+from tpps.adapters import render as R
+from tpps.reasoning.creative import (CRITIC_CLASSES, Alignment, FailureCertificate,
+                                     SignatureMorphism, align_by_schema, anti_unify_shapes,
+                                     backward_chain, blend, BlendRejected, classify_residual,
+                                     propose_barrier, score_alignment)
+from tpps.core.evidence import Evidence, Formal, Reviewed
+from tpps.adapters.extract import (MISTRANSLATION_KINDS, ExtractedNode, accept,
+                                   build_candidate, semantic_review)
+from tpps.reasoning.induce import (Strategy, complete_lgg, corrected_schema_name)
+from tpps.adapters.kernel import Certificate, KernelInterface, recheck
+from tpps.adapters.llm import LlmClient, admit_fragment
+from tpps.core.plan import MethodInstance, Plan, StmtNode
+from tpps.adapters.render import Register, lint_rendered, render, smooth_with_llm
+from tpps.core.schema import CondTag, Condition
+from tpps.core.stmt import App, Const, Shape, Stmt, Var
+from tpps.adapters.store import MockStore
 
 
 # --- Creative ---
@@ -168,7 +168,7 @@ def test_kernel_interface_pins_env():
 # --- LLM ---
 class _StubLlm(LlmClient):
     def extract(self, prose: str) -> str:
-        self.log.append(__import__("tpps.llm", fromlist=["LlmCallLog"]).LlmCallLog(
+        self.log.append(__import__("tpps.adapters.llm", fromlist=["LlmCallLog"]).LlmCallLog(
             "stub", prose, "frag"))
         return "frag"
 
@@ -194,7 +194,7 @@ def test_llm_boundary_three_paths_gated():
 # --- Store ---
 def test_commit_gate_typing_pass_and_retrieval():
     from tpps.examples import example_registry, plan_a
-    from tpps import typecheck as T
+    from tpps.core import typecheck as T
     reg = example_registry()
     plan = plan_a()
     store = MockStore()

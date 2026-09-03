@@ -8,9 +8,9 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-from .evidence import Evidence
-from .plan import Layer, MethodInstance, Plan, Provenance, StmtNode
-from .stmt import CtxEntry, Shape, Stmt
+from tpps.core.evidence import Evidence
+from tpps.core.plan import Layer, MethodInstance, Plan, Provenance, StmtNode
+from tpps.core.stmt import CtxEntry, Shape, Stmt
 
 
 # Sort pairs that are bridgeable via an explicit cast (the

@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .schema import Condition, MethodSchema, TrustRecord
-from .stmt import Shape
+from tpps.core.schema import Condition, MethodSchema, TrustRecord
+from tpps.core.stmt import Shape
 
 
 @dataclass

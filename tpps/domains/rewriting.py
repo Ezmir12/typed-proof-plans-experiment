@@ -5,11 +5,11 @@ and worked plans.
 """
 from __future__ import annotations
 
-from ..creative import PREMISE_TABLE
-from ..plan import Layer, MethodInstance, Plan, Provenance, StmtNode
-from ..schema import CondTag, Condition, MethodSchema, SchemaRegistry, TrustRecord, TrustStatus
-from ..sorts import Attribute, SortDecl, SortRegistry
-from ..stmt import Shape, Stmt, Var
+from tpps.reasoning.creative import PREMISE_TABLE
+from tpps.core.plan import Layer, MethodInstance, Plan, Provenance, StmtNode
+from tpps.core.schema import CondTag, Condition, MethodSchema, SchemaRegistry, TrustRecord, TrustStatus
+from tpps.core.sorts import Attribute, SortDecl, SortRegistry
+from tpps.core.stmt import Shape, Stmt, Var
 
 ROLES = ("RankingFunction", "Certificate", "CriticalPair", "Witness",
          "Invariant", "Simulation", "Decomposition", "Abstraction")
@@ -155,7 +155,7 @@ def list_confluence_plan() -> Plan:
 
 def strategy_independence_cast_plan() -> Plan:
     """Set/multiset drift recorded as an explicit Bypass cast."""
-    from ..transform import Bypass
+    from tpps.reasoning.transform import Bypass
     p = Plan("strategy-independence")
     p.add_stmt(StmtNode("equiv-set",
                         Stmt(shape=Shape("Equiv", (), regime="as Set", sort="RelSpace"))))

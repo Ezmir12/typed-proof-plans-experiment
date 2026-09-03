@@ -1,20 +1,20 @@
 """Core tests: evidence, sorts, stmt, schema, plan, typecheck, transform."""
 import pytest
 
-from tpps import evidence as E
-from tpps import typecheck as T
-from tpps.evidence import (BOTTOM, Certified, Empirical, Evidence, Formal, Fresh,
-                           Reviewed, aggregate, check_support_consistent, conjoin,
-                           is_closed, is_kernel_refuted)
-from tpps.plan import Layer, MethodInstance, Plan, Provenance, StmtNode
-from tpps.schema import CondTag, Condition, MethodSchema, SchemaRegistry, TrustRecord
-from tpps.sorts import Attribute, SortDecl, SortRegistry
-from tpps.stmt import (App, CheckKind, Const, Shape, Stmt, Var, alpha_eq, bind,
-                       run_check, unify_exact)
-from tpps.transform import (AuxiliaryFunction, Bypass, Compress, Contradiction,
-                            FixPoint, GeneralizeSpecialize, SortClashError,
-                            cast_evidence, elaboration_ready,
-                            transformation_sound)
+from tpps.core import evidence as E
+from tpps.core import typecheck as T
+from tpps.core.evidence import (BOTTOM, Certified, Empirical, Evidence, Formal, Fresh,
+                                Reviewed, aggregate, check_support_consistent, conjoin,
+                                is_closed, is_kernel_refuted)
+from tpps.core.plan import Layer, MethodInstance, Plan, Provenance, StmtNode
+from tpps.core.schema import CondTag, Condition, MethodSchema, SchemaRegistry, TrustRecord
+from tpps.core.sorts import Attribute, SortDecl, SortRegistry
+from tpps.core.stmt import (App, CheckKind, Const, Shape, Stmt, Var, alpha_eq, bind,
+                            run_check, unify_exact)
+from tpps.reasoning.transform import (AuxiliaryFunction, Bypass, Compress, Contradiction,
+                                      FixPoint, GeneralizeSpecialize, SortClashError,
+                                      cast_evidence, elaboration_ready,
+                                      transformation_sound)
 
 
 def K(**kw):
@@ -95,7 +95,7 @@ def test_alpha_equivalence():
 
 
 def test_four_checks_distinct_and_logged():
-    from tpps.sorts import RegimeOrder
+    from tpps.core.sorts import RegimeOrder
     regimes = RegimeOrder()
     regimes.add("weak", "strong")
     pat = Shape("Bound", (Var("x"),), regime="weak")
@@ -137,7 +137,7 @@ def test_registry_rejects_incomplete_and_promotes():
 
 
 def test_checker_termination_probe():
-    from tpps.schema import fuzz_terminate
+    from tpps.core.schema import fuzz_terminate
     assert fuzz_terminate(_good_schema(), trials=100)
 
 
@@ -222,13 +222,13 @@ def test_typecheck_four_failing_subconditions():
 
 
 def test_eigenvar_escape_rejected():
-    from tpps.transform import FixPoint
+    from tpps.reasoning.transform import FixPoint
     p = Plan("fx")
     p.add_stmt(StmtNode("t", Stmt(shape=Shape("P", ()))))
     FixPoint(target="t", eigenvar="x0").apply(p)
     assert T.check_well_scoped(p) == []
     p.add_stmt(StmtNode("evil", Stmt(
-        context=(__import__("tpps.stmt", fromlist=["CtxEntry"]).CtxEntry(
+        context=(__import__("tpps.core.stmt", fromlist=["CtxEntry"]).CtxEntry(
             "Eigenvar", "x0", "FixPoint-t"),),
         shape=Shape("Q", ()))))
     errs = T.check_well_scoped(p)

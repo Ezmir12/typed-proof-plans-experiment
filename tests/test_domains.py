@@ -1,6 +1,6 @@
 """Domain + eval + end-to-end tests."""
 from tpps import eval_harness as EV
-from tpps import typecheck as T
+from tpps.core import typecheck as T
 from tpps.domains import complex_analysis as CA
 from tpps.domains import rewriting as RW
 from tpps.domains.rewriting import mm2_step
@@ -91,8 +91,8 @@ def test_section7_end_to_end():
 
 def test_fta_plan_checks_and_renders():
     from tpps.examples import complex_registry, fta_plan
-    from tpps.evidence import Evidence
-    from tpps.render import Register, render
+    from tpps.core.evidence import Evidence
+    from tpps.adapters.render import Register, render
     reg = complex_registry()
     plan = fta_plan()
     assert T.check_plan(plan, reg).ok

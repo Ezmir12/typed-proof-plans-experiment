@@ -7,8 +7,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .plan import Plan, Provenance, StmtNode
-from .stmt import Shape, Stmt
+from tpps.core.plan import Plan, Provenance, StmtNode
+from tpps.core.stmt import Shape, Stmt
 
 
 @dataclass

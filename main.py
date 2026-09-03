@@ -1,11 +1,11 @@
 """TPPS prototype demo: Plan A induction + Liouville render + commit gate."""
-from tpps import typecheck as T
+from tpps.core import typecheck as T
 from tpps.domains import complex_analysis as CA
 from tpps.domains import rewriting as RW
-from tpps.evidence import Evidence, Reviewed
+from tpps.core.evidence import Evidence, Reviewed
 from tpps.examples import (complex_registry, example_registry, plan_a, plan_b,
                            plan_c_failure, theorem6_completion)
-from tpps.render import Register, render
+from tpps.adapters.render import Register, render
 from tpps.config import load_config, make_store
 
 

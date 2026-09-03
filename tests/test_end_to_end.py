@@ -5,23 +5,23 @@ flows: build → check → aggregate → transform/induce → render/extract →
 commit. Each test fails if any stage of its pipeline breaks.
 """
 from tpps import eval_harness as EV
-from tpps import typecheck as T
+from tpps.core import typecheck as T
 from tpps.domains import complex_analysis as CA
 from tpps.domains import rewriting as RW
-from tpps.evidence import (Evidence, EvidenceStore, Formal, Reviewed,
-                           aggregate, check_support_consistent, conjoin,
-                           is_closed)
+from tpps.core.evidence import (Evidence, EvidenceStore, Formal, Reviewed,
+                                aggregate, check_support_consistent, conjoin,
+                                is_closed)
 from tpps.examples import (complex_registry, example_registry, fta_plan,
                            one_way_delete_schema, plan_a, plan_b,
                            plan_c_failure, theorem6_completion)
-from tpps.extract import (ExtractedNode, accept, build_candidate,
-                          semantic_review)
-from tpps.kernel import KernelInterface
-from tpps.plan import Plan
-from tpps.render import Register, lint_rendered, render
-from tpps.stmt import Shape, Var
-from tpps.store import MockStore
-from tpps.transform import elaboration_ready
+from tpps.adapters.extract import (ExtractedNode, accept, build_candidate,
+                                   semantic_review)
+from tpps.adapters.kernel import KernelInterface
+from tpps.core.plan import Plan
+from tpps.adapters.render import Register, lint_rendered, render
+from tpps.core.stmt import Shape, Var
+from tpps.adapters.store import MockStore
+from tpps.reasoning.transform import elaboration_ready
 
 
 def test_rewriting_induction_lifecycle():
@@ -150,7 +150,7 @@ def test_bypass_drift_recorded_not_silently_accepted():
     assert inst.obligations, "drift must leave the implication obligation open"
     assert "worker-attempt-7" in inst.provenance.producing_attempt
     # The cast target can never outrank its open obligation.
-    from tpps.transform import cast_evidence
+    from tpps.reasoning.transform import cast_evidence
     capped = cast_evidence(
         Evidence(formal=Formal.KERNEL, kernel_system="lean4+mathlib", env_hash="h"),
         Evidence())

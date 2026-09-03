@@ -11,8 +11,8 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .kernel import ENV_HASH, KernelInterface
-from .store import MockStore
+from tpps.adapters.kernel import ENV_HASH, KernelInterface
+from tpps.adapters.store import MockStore
 
 DEFAULT_API_KEY_ENV = "TPPS_LLM_API_KEY"
 DEFAULT_PATH = Path("config.toml")

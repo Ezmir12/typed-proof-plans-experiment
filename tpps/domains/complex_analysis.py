@@ -4,13 +4,13 @@ CircleExhaustion strategy + AuxiliaryDivision.
 """
 from __future__ import annotations
 
-from ..creative import PREMISE_TABLE
-from ..induce import Strategy
-from ..kernel import Certificate
-from ..plan import MethodInstance, Plan, StmtNode
-from ..schema import CondTag, Condition, MethodSchema, SchemaRegistry
-from ..sorts import Attribute, SortDecl, SortRegistry
-from ..stmt import Shape, Stmt, Var
+from tpps.reasoning.creative import PREMISE_TABLE
+from tpps.reasoning.induce import Strategy
+from tpps.adapters.kernel import Certificate
+from tpps.core.plan import MethodInstance, Plan, StmtNode
+from tpps.core.schema import CondTag, Condition, MethodSchema, SchemaRegistry
+from tpps.core.sorts import Attribute, SortDecl, SortRegistry
+from tpps.core.stmt import Shape, Stmt, Var
 
 ROLES = ("Bound", "TestPoint", "ExhaustingParameter", "AuxiliaryFunction",
          "Decomposition", "Witness", "ExceptionalSet")
@@ -138,7 +138,7 @@ def liouville_plan() -> Plan:
 
 def schwarz_plan() -> Plan:
     """Schwarz lemma with two OR-alternative Holo(g|D) derivations."""
-    from ..plan import Layer
+    from tpps.core.plan import Layer
     p = Plan("schwarz")
     p.add_stmt(StmtNode("holo-f", Stmt(shape=Shape("Holo", (Var("f"),)))))
     p.add_stmt(StmtNode("f0-zero", Stmt(shape=Shape("Zero", (Var("f"),)))))

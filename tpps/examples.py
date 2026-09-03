@@ -2,12 +2,12 @@
 """
 from __future__ import annotations
 
-from .creative import anti_unify_shapes
-from .domains import rewriting as RW
-from .induce import InformativeFailure, Strategy, complete_lgg, corrected_schema_name
-from .plan import MethodInstance, Plan, Provenance, StmtNode
-from .schema import CondTag, Condition, MethodSchema, SchemaRegistry, TrustRecord
-from .stmt import App, Const, Shape, Stmt, Var
+from tpps.reasoning.creative import anti_unify_shapes
+from tpps.domains import rewriting as RW
+from tpps.reasoning.induce import InformativeFailure, Strategy, complete_lgg, corrected_schema_name
+from tpps.core.plan import MethodInstance, Plan, Provenance, StmtNode
+from tpps.core.schema import CondTag, Condition, MethodSchema, SchemaRegistry, TrustRecord
+from tpps.core.stmt import App, Const, Shape, Stmt, Var
 
 
 def example_registry() -> SchemaRegistry:
