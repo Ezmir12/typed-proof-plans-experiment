@@ -2,7 +2,7 @@
 
 Skipped without a live backend key. These call a real model (costs real
 money and wall-clock time); they are release gates, not unit tests.
-Contract machinery without a network lives in test_llm_extract.py.
+The offline contract machinery is covered by scripted-client unit tests.
 """
 import os
 from pathlib import Path

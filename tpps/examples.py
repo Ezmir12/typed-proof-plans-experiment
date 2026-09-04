@@ -117,7 +117,7 @@ def complex_registry() -> SchemaRegistry:
                 is_transform=True))
             reg.promote(tid, kernel_verified=True)
     # FTA uses Liouville with 2 premises + Constant conclusion: mark transform-kind
-    # so the cross-domain demo shape-checks; the real schema lives in CA library.
+    # so the cross-domain demo shape-checks against the same-named schema.
     liouv = reg.schemas["Liouville"]
     liouv.is_transform = True
     reg.schemas["Contradiction"] = MethodSchema(

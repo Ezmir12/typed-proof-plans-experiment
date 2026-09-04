@@ -1,8 +1,8 @@
 """LlmExtractor unit tests with a scripted client (no network).
 
 These pin the contract machinery — vocabulary export, hard rejects,
-candidate construction — not model behavior. Graded model behavior lives
-in test_phase1_llm.py and needs a live backend.
+candidate construction — not model behavior. Graded model behavior is
+gated separately and needs a live backend.
 """
 from tpps.adapters.llm_extract import (DeclinedExtraction, LlmExtractor,
                                        VocabularyViolation)

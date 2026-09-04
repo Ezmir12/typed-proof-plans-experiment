@@ -144,9 +144,10 @@ def replace_settings_extractor(settings, extractor: str):
 
 def _resolve_extractor(hooks: PipelineHooks, registry: SchemaRegistry,
                        settings):
-    """Return (mode, attempt_fn, feedback_available, trace_fn).
+    """Return (mode, label, attempt_fn, feedback_available, trace_fn).
 
-    attempt_fn(nl_text, diagnostic) runs one extraction attempt.
+    attempt_fn(nl_text, diagnostic) runs one extraction attempt. label names
+    the concrete extractor class for the log. Unknown modes raise ValueError.
     """
     from tpps.adapters.llm import HttpLlmClient
     from tpps.adapters.llm_extract import LlmExtractor
@@ -156,21 +157,22 @@ def _resolve_extractor(hooks: PipelineHooks, registry: SchemaRegistry,
     if hooks.extract_fn is not None:
         base = hooks.extract_fn
         feedback = hooks.feedback_fn
+        label = f"hooks:{getattr(base, '__name__', type(base).__name__)}"
         def attempt(nl_text: str, diagnostic: str) -> CandidatePlan:
             if diagnostic and feedback is not None:
                 return feedback(nl_text, diagnostic)
             return base(nl_text)
-        return "hooks", attempt, feedback is not None, hooks.extract_trace_fn
+        return "hooks", label, attempt, feedback is not None, hooks.extract_trace_fn
 
     mode = settings.app.extractor
     if mode == "demo":
-        return "demo", lambda nl, diag: _demo_extract(nl), False, None
+        return "demo", "DemoExtractor", lambda nl, diag: _demo_extract(nl), False, None
     if mode == "llm":
         vocab = export_vocabulary(registry, RW.sort_library(), list(RW.ROLES))
         ext = LlmExtractor(HttpLlmClient(settings.llm), registry, vocab)
         def llm_trace() -> dict:
             return {"prompt": ext.last_prompt, "response": ext.last_response}
-        return "llm", ext.extract, True, llm_trace
+        return "llm", type(ext).__name__, ext.extract, True, llm_trace
     raise ValueError(f"unknown extractor {mode!r} (want llm|demo|hooks)")
 
 
@@ -225,6 +227,10 @@ def run_pipeline(nl_text: str, log_dir: str | Path = "logs/runs",
     registry = registry_fn()
     requirement = hooks.requirement or DEFAULT_REQUIREMENT
     trigger_fn = hooks.creative_trigger_fn or _default_trigger
+    # Resolve before creating the logger: an unknown mode fails explicitly
+    # with no log file and no stage records at all.
+    mode, extractor_label, attempt, feedback, trace_fn = _resolve_extractor(
+        hooks, registry, settings)
     logger = StageLogger(log_dir, level)
     plan: Plan | None = None
 
@@ -232,8 +238,6 @@ def run_pipeline(nl_text: str, log_dir: str | Path = "logs/runs",
         return RunResult(logger.run_id, str(logger.path), plan, accepted,
                          target_closed, evidence_by_node or {}, diffs or [])
 
-    mode, attempt, feedback, trace_fn = _resolve_extractor(hooks, registry,
-                                                           settings)
     single_shot = lambda text: attempt(text, "")
     max_attempts = 1 + (settings.app.extract_retries if feedback else 0)
 
@@ -244,16 +248,19 @@ def run_pipeline(nl_text: str, log_dir: str | Path = "logs/runs",
     last_error: Exception | None = None
     for attempt_no in range(1, max_attempts + 1):
         with logger.stage("extract", {"nl_text": nl_text, "attempt": attempt_no,
-                                      "mode": mode}) as st:
+                                      "mode": mode,
+                                      "extractor": extractor_label}) as st:
             try:
                 candidate = attempt(nl_text, diagnostic)
             except DeclinedExtraction as exc:
-                st.set_output({"declined": True, "reason": str(exc)})
+                st.set_output({"extractor": extractor_label,
+                               "declined": True, "reason": str(exc)})
                 return done()
             except (VocabularyViolation, LlmError) as exc:
                 last_error = exc
                 diagnostic = f"{type(exc).__name__}: {exc}"
-                st.set_output({"well_typed": False, "attempt": attempt_no,
+                st.set_output({"extractor": extractor_label,
+                               "well_typed": False, "attempt": attempt_no,
                                "diagnostics": [diagnostic],
                                "will_retry": attempt_no < max_attempts})
                 continue
@@ -261,7 +268,8 @@ def run_pipeline(nl_text: str, log_dir: str | Path = "logs/runs",
             report = T.check_plan(plan, registry)
             diagnostics = _diagnostics(report)
             confs = [n.extraction_confidence for n in candidate.nodes] or [0.0]
-            st.set_output({"candidate_plan": plan.to_atoms(),
+            st.set_output({"extractor": extractor_label,
+                           "candidate_plan": plan.to_atoms(),
                            "extraction_confidence": sum(confs) / len(confs),
                            "node_count": len(plan.stmts),
                            "attempt": attempt_no,

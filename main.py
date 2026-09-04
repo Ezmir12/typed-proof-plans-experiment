@@ -16,11 +16,14 @@ def main():
     ap.add_argument("--pipeline", metavar="TEXT", default=None,
                     help="run one NL string through the logged pipeline "
                          "(extractor: TPPS_EXTRACTOR=llm|demo|hooks, default llm)")
+    ap.add_argument("--extractor", choices=("llm", "demo"), default=None,
+                    help="override the configured extractor for this run")
     ap.add_argument("--log-dir", default="logs/runs")
     args = ap.parse_args()
     if args.pipeline is not None:
         from tpps.pipeline import run_pipeline
-        res = run_pipeline(args.pipeline, log_dir=args.log_dir)
+        res = run_pipeline(args.pipeline, log_dir=args.log_dir,
+                           extractor=args.extractor)
         print(f"run_id: {res.run_id}\nlog: {res.log_path}\n"
               f"accepted: {res.accepted} target_closed: {res.target_closed}")
         print(f"replay: uv run python tools/replay_log.py {res.run_id} "

@@ -1,8 +1,9 @@
-"""Setup configuration: layered overrides with documented precedence.
+"""Setup configuration: TOML file plus .env file plus environment overrides.
 
-Precedence: exported environment variables > local dotenv file >
-config file > built-in defaults. Secrets never live in files: only the
-name of the variable holding the LLM API key is configured, never the key.
+Precedence: exported env vars > .env file > config.toml > defaults.
+Secrets never live in files: the config only names the environment variable
+that holds the LLM API key. Local setup files are gitignored; start from
+the shipped examples.
 """
 from __future__ import annotations
 
@@ -26,7 +27,7 @@ class LlmSettings:
     api_key_env: str = DEFAULT_API_KEY_ENV
     timeout_s: float = 60.0
     max_retries: int = 2
-    # Resolved at load from the named env var (dotenv counts); never from a file.
+    # Resolved at load from the named env var (.env counts); never from TOML.
     api_key: str = ""
 
 
@@ -109,10 +110,10 @@ def _parse_dotenv(path: Path) -> dict[str, str]:
 
 
 def load_config(path: str | Path | None = None) -> Settings:
-    """Load settings. Precedence: exported env vars > dotenv file >
-    config file > defaults. The dotenv sidecar is looked up next to the
-    given path (or the working directory when no path is given). Missing
-    files fall back silently."""
+    """Load settings. Precedence: exported env vars > .env file >
+    config file > defaults. The .env file is looked up next to the config file
+    (or the working directory when no path is given). Missing files fall back
+    silently."""
     resolved = Path(path) if path is not None else DEFAULT_PATH
     data: dict = {}
     if resolved.is_file():
