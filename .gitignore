@@ -13,5 +13,9 @@ wheels/
 AGENTS.md
 SRS_Typed_Proof_Plans.md
 
-# Local setup: copy config.example.toml; secrets come from env vars only
+# Local setup: copy config.example.toml / .env.example; secrets come from env vars only
 config.toml
+.env
+
+# Pipeline run logs
+logs/
