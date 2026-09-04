@@ -1,4 +1,6 @@
 """Config loader tests: defaults, file load, env overrides, factories."""
+import os
+import shutil
 from dataclasses import replace
 from pathlib import Path
 
@@ -22,8 +24,11 @@ def test_missing_explicit_path_raises(tmp_path):
         load_config(tmp_path / "missing.toml")
 
 
-def test_example_file_loads():
-    s = load_config(EXAMPLE)
+def test_example_file_loads(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    local = tmp_path / "ex.toml"
+    shutil.copy(EXAMPLE, local)
+    s = load_config(local)
     assert s.llm.provider == "openai-compatible"
     assert s.llm.timeout_s == 60.0
     assert s.kernel.system == "lean4+mathlib"
@@ -62,6 +67,42 @@ def test_factories_follow_settings(tmp_path, monkeypatch):
     s = load_config()
     assert make_kernel(s).env_hash == "pinned-123"
     assert make_store(s).owner == "factory-owner"
-    s2 = load_config(EXAMPLE)
     with pytest.raises(ValueError):
-        make_store(replace(s2, store=replace(s2.store, backend="real")))
+        make_store(replace(Settings(), store=replace(Settings().store,
+                                                     backend="real")))
+
+
+def test_dotenv_picked_up(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text(
+        "TPPS_LLM_MODEL=dotenv-model\nTPPS_STORE_OWNER=dotenv-owner\n")
+    s = load_config()
+    assert s.llm.model == "dotenv-model"
+    assert s.store.owner == "dotenv-owner"
+
+
+def test_exported_env_beats_dotenv(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("TPPS_LLM_MODEL=dotenv-model\n")
+    monkeypatch.setenv("TPPS_LLM_MODEL", "exported-model")
+    assert load_config().llm.model == "exported-model"
+
+
+def test_dotenv_beats_config_toml(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.toml").write_text('[llm]\nmodel = "toml-model"\n')
+    (tmp_path / ".env").write_text("TPPS_LLM_MODEL=dotenv-model\n")
+    assert load_config().llm.model == "dotenv-model"
+
+
+def test_dotenv_format_quirks(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text(
+        "# a comment\n\nOTHER_VAR=ignored\n"
+        'TPPS_LLM_MODEL="quoted model"\n'
+        "export TPPS_STORE_OWNER=exported-owner\n"
+        "MALFORMED LINE\n")
+    assert "OTHER_VAR" not in os.environ  # loader never mutates the environment
+    s = load_config()
+    assert s.llm.model == "quoted model"
+    assert s.store.owner == "exported-owner"

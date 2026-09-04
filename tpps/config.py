@@ -1,8 +1,9 @@
-"""Setup configuration: TOML file plus TPPS_ environment overrides.
+"""Setup configuration: TOML file plus .env file plus environment overrides.
 
+Precedence: exported env vars > .env file > config.toml > defaults.
 Secrets never live in files: the config only names the environment variable
-that holds the LLM API key. `config.toml` is gitignored; copy
-`config.example.toml` to create it. With no file present, sane defaults apply.
+that holds the LLM API key. `config.toml` and `.env` are gitignored; copy
+`config.example.toml` / `.env.example` to create them.
 """
 from __future__ import annotations
 
@@ -80,8 +81,38 @@ def _coerce(cls, values: dict, where: str):
     return cls(**{k: v for k, v in values.items() if k in known})
 
 
+def _coerce_value(raw: str, field_type) -> object:
+    if field_type == "float":
+        return float(raw)
+    if field_type == "int":
+        return int(raw)
+    return raw
+
+
+def _parse_dotenv(path: Path) -> dict[str, str]:
+    """Minimal KEY=VALUE parser. Only TPPS_* keys are honored; the process
+    environment is never mutated."""
+    values: dict[str, str] = {}
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):].strip()
+        key, _, val = line.partition("=")
+        key, val = key.strip(), val.strip()
+        if len(val) >= 2 and val[0] == val[-1] and val[0] in ("'", '"'):
+            val = val[1:-1]
+        if key.startswith("TPPS_"):
+            values[key] = val
+    return values
+
+
 def load_config(path: str | Path | None = None) -> Settings:
-    """Load settings; missing file falls back to defaults (env still applies)."""
+    """Load settings. Precedence: exported env vars > .env file >
+    config file > defaults. The .env file is looked up next to the config file
+    (or the working directory when no path is given). Missing files fall back
+    silently."""
     resolved = Path(path) if path is not None else DEFAULT_PATH
     data: dict = {}
     if resolved.is_file():
@@ -92,6 +123,8 @@ def load_config(path: str | Path | None = None) -> Settings:
     unknown_sections = set(data) - set(_SECTIONS)
     if unknown_sections:
         raise ValueError(f"unknown config sections {sorted(unknown_sections)}")
+    dotenv_path = (resolved.parent if path is not None else Path(".")) / ".env"
+    dotenv = _parse_dotenv(dotenv_path) if dotenv_path.is_file() else {}
 
     kwargs: dict = {}
     for section, cls in _SECTIONS.items():
@@ -99,11 +132,10 @@ def load_config(path: str | Path | None = None) -> Settings:
         if not isinstance(values, dict):
             raise ValueError(f"section [{section}] must be a table")
         for key, env_var in _ENV_OVERRIDES[section].items():
-            if env_var in os.environ:
-                raw = os.environ[env_var]
+            raw = os.environ.get(env_var, dotenv.get(env_var))
+            if raw is not None:
                 field_type = cls.__dataclass_fields__[key].type
-                values[key] = (float(raw) if field_type == "float"
-                               else int(raw) if field_type == "int" else raw)
+                values[key] = _coerce_value(raw, field_type)
         kwargs[section] = _coerce(cls, values, f"[{section}]")
     return Settings(**kwargs)
 
