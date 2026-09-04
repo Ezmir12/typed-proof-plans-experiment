@@ -35,6 +35,13 @@ class StmtNode:
     layer: Layer = Layer.COMMITTED
 
 
+@dataclass(frozen=True)
+class Role:
+    object_ref: str
+    role_name: str
+    annotation: str = ""
+
+
 @dataclass
 class MethodInstance:
     id: str
@@ -53,6 +60,7 @@ class Plan:
         self.id = plan_id
         self.stmts: dict[str, StmtNode] = {}
         self.insts: dict[str, MethodInstance] = {}
+        self.roles: list[Role] = []
 
     # -- construction --
     def add_stmt(self, node: StmtNode) -> StmtNode:
@@ -131,6 +139,9 @@ class Plan:
                 f"({' '.join(i.premises)}) {i.conclusion} (sigma {i.substitution!r}))")
             for o in i.obligations:
                 atoms.append(f"(plan {self.id} obl {i.id} {o})")
+        for r in self.roles:
+            atoms.append(f"(plan {self.id} role {r.object_ref} "
+                         f"{r.role_name} {r.annotation})")
         return atoms
 
     @staticmethod
@@ -160,6 +171,9 @@ class Plan:
             elif len(toks) >= 5 and toks[2] == "obl" and toks[3] in plan.insts:
                 if toks[4] not in plan.insts[toks[3]].obligations:
                     plan.insts[toks[3]].obligations.append(toks[4])
+            elif len(toks) >= 5 and toks[2] == "role":
+                annotation = " ".join(toks[5:]).strip("() ") if len(toks) > 5 else ""
+                plan.roles.append(Role(toks[3], toks[4], annotation))
         return plan
 
 

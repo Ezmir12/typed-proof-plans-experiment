@@ -93,3 +93,25 @@ def test_api_key_never_reaches_disk(tmp_path, monkeypatch):
     recs = _records(res2.log_path)
     assert all("llm_trace" not in (r.get("output_summary") or {})
                for r in recs if r["event"] == "end")
+
+
+def test_retry_feeds_diagnostic_verbatim_and_succeeds(tmp_path):
+    seen: list[str] = []
+    bad, good = _mock_candidate("Bogus"), _mock_candidate("ClaimB")
+
+    def feedback(nl_text: str, diagnostic: str) -> object:
+        seen.append(diagnostic)
+        return good
+
+    hooks = PipelineHooks(extract_fn=lambda text: bad, feedback_fn=feedback,
+                          registry_fn=_mock_registry,
+                          creative_trigger_fn=lambda *args: None)
+    res = run_pipeline("retry me", log_dir=str(tmp_path), hooks=hooks)
+    recs = _records(res.log_path)
+    assert [r["event"] for r in recs if r["stage"] == "extract"] == [
+        "start", "end", "start", "end"]
+    assert seen and "concl=False" in seen[0]  # checker text fed back verbatim
+    first_end = next(r for r in recs
+                     if r["stage"] == "extract" and r["event"] == "end")
+    assert first_end["output_summary"]["will_retry"] is True
+    assert res.accepted

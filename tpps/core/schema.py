@@ -54,6 +54,8 @@ class MethodSchema:
     soundness_theorem: str = ""  # kernel theorem ref
     # Plan-level transforms live in a distinct kind from schemas.
     is_transform: bool = False
+    # Role slots this schema binds (e.g. RankingFunction on the measure).
+    roles: tuple[str, ...] = ()
 
     def validate(self) -> list[str]:
         """Seven-field check + dividing rule."""

@@ -1,15 +1,14 @@
-"""Setup configuration: TOML file plus .env file plus environment overrides.
+"""Setup configuration: layered overrides with documented precedence.
 
-Precedence: exported env vars > .env file > config.toml > defaults.
-Secrets never live in files: the config only names the environment variable
-that holds the LLM API key. `config.toml` and `.env` are gitignored; copy
-`config.example.toml` / `.env.example` to create them.
+Precedence: exported environment variables > local dotenv file >
+config file > built-in defaults. Secrets never live in files: only the
+name of the variable holding the LLM API key is configured, never the key.
 """
 from __future__ import annotations
 
 import os
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from tpps.adapters.kernel import ENV_HASH, KernelInterface
@@ -27,10 +26,8 @@ class LlmSettings:
     api_key_env: str = DEFAULT_API_KEY_ENV
     timeout_s: float = 60.0
     max_retries: int = 2
-
-    @property
-    def api_key(self) -> str:
-        return os.environ.get(self.api_key_env, "")
+    # Resolved at load from the named env var (dotenv counts); never from a file.
+    api_key: str = ""
 
 
 @dataclass(frozen=True)
@@ -49,6 +46,8 @@ class StoreSettings:
 @dataclass(frozen=True)
 class AppSettings:
     log_level: str = "INFO"
+    extractor: str = "llm"  # llm | demo | hooks (explicit hooks win regardless)
+    extract_retries: int = 2
 
 
 @dataclass(frozen=True)
@@ -69,7 +68,8 @@ _ENV_OVERRIDES = {
     "kernel": {"system": "TPPS_KERNEL_SYSTEM", "env_hash": "TPPS_KERNEL_ENV_HASH",
                "endpoint": "TPPS_KERNEL_ENDPOINT"},
     "store": {"owner": "TPPS_STORE_OWNER", "backend": "TPPS_STORE_BACKEND"},
-    "app": {"log_level": "TPPS_LOG_LEVEL"},
+    "app": {"log_level": "TPPS_LOG_LEVEL", "extractor": "TPPS_EXTRACTOR",
+            "extract_retries": "TPPS_EXTRACT_RETRIES"},
 }
 
 
@@ -109,10 +109,10 @@ def _parse_dotenv(path: Path) -> dict[str, str]:
 
 
 def load_config(path: str | Path | None = None) -> Settings:
-    """Load settings. Precedence: exported env vars > .env file >
-    config file > defaults. The .env file is looked up next to the config file
-    (or the working directory when no path is given). Missing files fall back
-    silently."""
+    """Load settings. Precedence: exported env vars > dotenv file >
+    config file > defaults. The dotenv sidecar is looked up next to the
+    given path (or the working directory when no path is given). Missing
+    files fall back silently."""
     resolved = Path(path) if path is not None else DEFAULT_PATH
     data: dict = {}
     if resolved.is_file():
@@ -131,13 +131,19 @@ def load_config(path: str | Path | None = None) -> Settings:
         values = dict(data.get(section, {}))
         if not isinstance(values, dict):
             raise ValueError(f"section [{section}] must be a table")
+        if section == "llm" and "api_key" in values:
+            raise ValueError("[llm]: api_key must come from the environment, "
+                             "never the config file")
         for key, env_var in _ENV_OVERRIDES[section].items():
             raw = os.environ.get(env_var, dotenv.get(env_var))
             if raw is not None:
                 field_type = cls.__dataclass_fields__[key].type
                 values[key] = _coerce_value(raw, field_type)
         kwargs[section] = _coerce(cls, values, f"[{section}]")
-    return Settings(**kwargs)
+    settings = Settings(**kwargs)
+    key_name = settings.llm.api_key_env
+    key = os.environ.get(key_name, dotenv.get(key_name, ""))
+    return replace(settings, llm=replace(settings.llm, api_key=key))
 
 
 def make_kernel(settings: Settings) -> KernelInterface:

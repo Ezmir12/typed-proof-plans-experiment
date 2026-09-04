@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Replay a pipeline run: pretty-print its stage-by-stage trace.
 
-Usage: uv run python tools/replay_log.py <run_id> [--log-dir logs/runs]
+Usage: replay_log.py <run_id> [--log-dir DIR] (defaults to the runs directory).
 <run_id> may be a bare id, a file name, or a full path.
 """
 import argparse

@@ -34,6 +34,8 @@ def test_example_file_loads(tmp_path, monkeypatch):
     assert s.kernel.system == "lean4+mathlib"
     assert s.store.backend == "mock"
     assert s.app.log_level == "INFO"
+    assert s.app.extractor == "llm"
+    assert s.app.extract_retries == 2
 
 
 def test_env_overrides_file_and_defaults(tmp_path, monkeypatch):
@@ -106,3 +108,16 @@ def test_dotenv_format_quirks(tmp_path, monkeypatch):
     s = load_config()
     assert s.llm.model == "quoted model"
     assert s.store.owner == "exported-owner"
+
+
+def test_api_key_resolves_from_dotenv(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("TPPS_LLM_API_KEY=file-key\n")
+    assert load_config().llm.api_key == "file-key"
+
+
+def test_api_key_in_toml_rejected(tmp_path):
+    bad = tmp_path / "bad.toml"
+    bad.write_text('[llm]\napi_key = "nope"\n')
+    with pytest.raises(ValueError):
+        load_config(bad)

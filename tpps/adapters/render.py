@@ -55,6 +55,9 @@ def render(plan: Plan, target: str, requirement: Evidence,
     cast_obls = {o for i in plan.insts.values()
                  if i.schema_ref == "Bypass" or i.id.startswith("cast-")
                  for o in i.obligations}
+    # Every other obligation-linked node is open until discharged: it must
+    # read as remaining work, never as an established premise.
+    obl_ids = {o for i in plan.insts.values() for o in i.obligations} - cast_obls
     lines: list[str] = []
     if register is Register.ANNOTATED:
         status = "closed" if closed else "OPEN: obligations remain"
@@ -81,6 +84,13 @@ def render(plan: Plan, target: str, requirement: Evidence,
             # Open obligation: never smoothed over.
             lines.append(f"It remains to show {nid}{regime}.")
             continue
+        if nid in obl_ids:
+            tag = ""
+            if register is Register.ANNOTATED:
+                t = _evidence_tag(n.evidence, requirement)
+                tag = f" {t}" if t else ""
+            lines.append(f"It remains to show {nid}{regime}{tag}.")
+            continue
         if producers and any(i.schema_ref == "Contradiction" for i in producers):
             lines.append(f"Suppose not; seeking a contradiction via {nid}.")
             continue
@@ -103,8 +113,11 @@ def lint_rendered(text: str, plan: Plan) -> list[str]:
     has_cast = any(i.schema_ref == "Bypass" for i in plan.insts.values())
     if has_cast and "cast" not in text.lower():
         flags.append("cast elided")
+    obl_ids = {o for i in plan.insts.values() for o in i.obligations}
+    lowered = text.lower()
     for n in plan.stmts.values():
-        if n.stmt.shape.head == "Implies" and "remains to show" not in text.lower():
+        if (n.stmt.shape.head == "Implies" or n.id in obl_ids) \
+                and "remains to show" not in lowered:
             flags.append(f"obligation {n.id} smoothed over")
         if n.stmt.regime and n.stmt.regime not in text:
             flags.append(f"regime {n.stmt.regime!r} dropped at {n.id}")
@@ -118,10 +131,10 @@ def smooth_with_llm(text: str, llm_fn, plan: Plan,
     reextracted_shapes, reextracted_regimes, reextracted_obls = reextract(smoothed)
     orig_shapes = {n.stmt.shape.head for n in plan.stmts.values()}
     orig_regimes = {n.stmt.regime for n in plan.stmts.values() if n.stmt.regime}
+    obl_ids = {o for i in plan.insts.values() for o in i.obligations}
     if (set(reextracted_shapes) != orig_shapes
             or set(reextracted_regimes) != orig_regimes
-            or "remains to show" not in smoothed and any(
-                n.stmt.shape.head == "Implies" for n in plan.stmts.values())):
+            or "remains to show" not in smoothed and bool(obl_ids)):
         return text  # reject: fall back to unsmoothed
     _ = reextracted_obls
     return smoothed

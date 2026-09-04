@@ -22,3 +22,8 @@ backend = "mock"
 
 [app]
 log_level = "INFO"
+# Pipeline extractor: llm (default) | demo (dev/demo-only keyword matcher) |
+# hooks (caller-supplied extract_fn, e.g. in tests). Explicit hooks win anyway.
+extractor = "llm"
+# Checker-feedback re-prompts after the first rejected candidate.
+extract_retries = 2

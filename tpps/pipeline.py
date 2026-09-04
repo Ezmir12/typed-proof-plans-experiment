@@ -29,11 +29,12 @@ DEFAULT_REQUIREMENT = Evidence(reviewed=Reviewed.INDEPENDENT)
 
 @dataclass
 class PipelineHooks:
-    """Injectable stage functions. Defaults are deterministic demo scaffolding
-    (keyword-mapped candidates, merged demo registries); pass mocks in tests
-    or LLM-backed callables in production."""
+    """Injectable stage functions. An explicit extract_fn always wins;
+    otherwise the TPPS_EXTRACTOR flag selects the llm (default) or demo
+    extractor. feedback_fn re-prompts with a checker diagnostic for retries."""
 
     extract_fn: Callable[[str], CandidatePlan] | None = None
+    feedback_fn: Callable[[str, str], CandidatePlan] | None = None
     extract_trace_fn: Callable[[], dict] | None = None
     registry_fn: Callable[[], SchemaRegistry] | None = None
     requirement: Evidence | None = None
@@ -66,8 +67,10 @@ def _demo_registry() -> SchemaRegistry:
 
 
 def _demo_extract(nl_text: str) -> CandidatePlan:
-    """Map recognized NL patterns to hand-built candidates; anything else
-    becomes a single open claim."""
+    """DEV/DEMO ONLY: keyword-mapped candidates, not real extraction.
+
+    Reachable only via TPPS_EXTRACTOR=demo or an explicit hooks.extract_fn.
+    Anything else becomes a single open claim."""
     from tpps.domains import complex_analysis as CA
     from tpps.domains import rewriting as RW
     lowered = nl_text.lower()
@@ -127,6 +130,50 @@ def _aggregate_plan(plan: Plan, registry: SchemaRegistry) -> dict[str, object]:
     return out
 
 
+def _diagnostics(report) -> list[str]:
+    return ([r.diagnostic for r in report.instances if not r.ok]
+            + report.scope_errors
+            + ([report.diagnostic] if report.diagnostic else []))
+
+
+def replace_settings_extractor(settings, extractor: str):
+    """Override the configured extractor for one run (leaves files alone)."""
+    from dataclasses import replace
+    return replace(settings, app=replace(settings.app, extractor=extractor))
+
+
+def _resolve_extractor(hooks: PipelineHooks, registry: SchemaRegistry,
+                       settings):
+    """Return (mode, attempt_fn, feedback_available, trace_fn).
+
+    attempt_fn(nl_text, diagnostic) runs one extraction attempt.
+    """
+    from tpps.adapters.llm import HttpLlmClient
+    from tpps.adapters.llm_extract import LlmExtractor
+    from tpps.adapters.vocab import export_vocabulary
+    from tpps.domains import rewriting as RW
+
+    if hooks.extract_fn is not None:
+        base = hooks.extract_fn
+        feedback = hooks.feedback_fn
+        def attempt(nl_text: str, diagnostic: str) -> CandidatePlan:
+            if diagnostic and feedback is not None:
+                return feedback(nl_text, diagnostic)
+            return base(nl_text)
+        return "hooks", attempt, feedback is not None, hooks.extract_trace_fn
+
+    mode = settings.app.extractor
+    if mode == "demo":
+        return "demo", lambda nl, diag: _demo_extract(nl), False, None
+    if mode == "llm":
+        vocab = export_vocabulary(registry, RW.sort_library(), list(RW.ROLES))
+        ext = LlmExtractor(HttpLlmClient(settings.llm), registry, vocab)
+        def llm_trace() -> dict:
+            return {"prompt": ext.last_prompt, "response": ext.last_response}
+        return "llm", ext.extract, True, llm_trace
+    raise ValueError(f"unknown extractor {mode!r} (want llm|demo|hooks)")
+
+
 def _diff_plans(first: Plan, second: Plan) -> list[dict]:
     """Shape/regime/obligation deltas only, fully enumerated, sorted."""
     diffs = []
@@ -154,15 +201,28 @@ def _diff_plans(first: Plan, second: Plan) -> list[dict]:
 
 def run_pipeline(nl_text: str, log_dir: str | Path = "logs/runs",
                  hooks: PipelineHooks | None = None,
-                 level: str | None = None) -> RunResult:
+                 level: str | None = None,
+                 extractor: str | None = None,
+                 settings=None) -> RunResult:
     """Run NL input to rendered output, logging every stage to one JSONL file.
 
+    Extractor selection: explicit hooks.extract_fn wins; else the `extractor`
+    argument or the configured TPPS_EXTRACTOR flag (llm by default, demo only
+    on request). Rejected candidates are re-prompted with the checker's
+    diagnostic (bounded retries); a clean decline stops the run gracefully.
     Soft failures (ill-typed plan, unclosed target) are logged and rendered,
     not skipped; only a raised exception stops the pipeline early.
     """
+    from tpps.adapters.llm_extract import DeclinedExtraction, VocabularyViolation
+    from tpps.adapters.llm import LlmError
+    from tpps.config import load_config
+
     hooks = hooks or PipelineHooks()
-    extract_fn = hooks.extract_fn or _demo_extract
+    settings = settings or load_config()
+    if extractor is not None:
+        settings = replace_settings_extractor(settings, extractor)
     registry_fn = hooks.registry_fn or _demo_registry
+    registry = registry_fn()
     requirement = hooks.requirement or DEFAULT_REQUIREMENT
     trigger_fn = hooks.creative_trigger_fn or _default_trigger
     logger = StageLogger(log_dir, level)
@@ -172,24 +232,54 @@ def run_pipeline(nl_text: str, log_dir: str | Path = "logs/runs",
         return RunResult(logger.run_id, str(logger.path), plan, accepted,
                          target_closed, evidence_by_node or {}, diffs or [])
 
-    # 1. extract
-    with logger.stage("extract", {"nl_text": nl_text}) as st:
-        candidate = extract_fn(nl_text)
-        plan = candidate.plan
-        confs = [n.extraction_confidence for n in candidate.nodes] or [0.0]
-        st.set_output({"candidate_plan": plan.to_atoms(),
-                       "extraction_confidence": sum(confs) / len(confs),
-                       "node_count": len(plan.stmts)})
-        if hooks.extract_trace_fn:
-            st.set_debug(hooks.extract_trace_fn())
+    mode, attempt, feedback, trace_fn = _resolve_extractor(hooks, registry,
+                                                           settings)
+    single_shot = lambda text: attempt(text, "")
+    max_attempts = 1 + (settings.app.extract_retries if feedback else 0)
+
+    # 1. extract (one stage event per attempt; diagnostics fed back verbatim)
+    candidate: CandidatePlan | None = None
+    report = None
+    diagnostic = ""
+    last_error: Exception | None = None
+    for attempt_no in range(1, max_attempts + 1):
+        with logger.stage("extract", {"nl_text": nl_text, "attempt": attempt_no,
+                                      "mode": mode}) as st:
+            try:
+                candidate = attempt(nl_text, diagnostic)
+            except DeclinedExtraction as exc:
+                st.set_output({"declined": True, "reason": str(exc)})
+                return done()
+            except (VocabularyViolation, LlmError) as exc:
+                last_error = exc
+                diagnostic = f"{type(exc).__name__}: {exc}"
+                st.set_output({"well_typed": False, "attempt": attempt_no,
+                               "diagnostics": [diagnostic],
+                               "will_retry": attempt_no < max_attempts})
+                continue
+            plan = candidate.plan
+            report = T.check_plan(plan, registry)
+            diagnostics = _diagnostics(report)
+            confs = [n.extraction_confidence for n in candidate.nodes] or [0.0]
+            st.set_output({"candidate_plan": plan.to_atoms(),
+                           "extraction_confidence": sum(confs) / len(confs),
+                           "node_count": len(plan.stmts),
+                           "attempt": attempt_no,
+                           "well_typed": all(r.ok for r in report.instances),
+                           "diagnostics": diagnostics,
+                           "will_retry": not report.ok and attempt_no < max_attempts})
+            if trace_fn:
+                st.set_debug(trace_fn())
+        if report.ok or attempt_no >= max_attempts:
+            break
+        diagnostic = "; ".join(diagnostics) or "candidate rejected"
+    if candidate is None or report is None:
+        raise last_error if last_error is not None else RuntimeError(
+            "extraction produced no candidate")
 
     # 2. typecheck
     with logger.stage("typecheck", {"candidate_plan_id": plan.id}) as st:
-        registry = registry_fn()
-        report = T.check_plan(plan, registry)
-        diagnostics = ([r.diagnostic for r in report.instances if not r.ok]
-                       + report.scope_errors
-                       + ([report.diagnostic] if report.diagnostic else []))
+        diagnostics = _diagnostics(report)
         st.set_output({"well_typed": all(r.ok for r in report.instances),
                        "well_scoped": not report.scope_errors,
                        "diagnostics": diagnostics})
@@ -239,11 +329,17 @@ def run_pipeline(nl_text: str, log_dir: str | Path = "logs/runs",
                        "annotated_text": render(plan, target, requirement,
                                                 Register.ANNOTATED)})
 
-    # 6. roundtrip
+    # 6. roundtrip (the same real extractor, run on rendered output)
     with logger.stage("roundtrip", {}) as st:
         textbook = render(plan, target, requirement, Register.TEXTBOOK)
         st.note("rendered_text", textbook)
-        re_extracted = extract_fn(textbook)
+        try:
+            re_extracted = single_shot(textbook)
+        except DeclinedExtraction as exc:
+            diffs = [{"kind": "extraction",
+                      "detail": f"re-extraction declined: {exc}"}]
+            st.set_output({"match": False, "diffs": diffs})
+            return done(accepted, target_closed, mus, diffs)
         diffs = _diff_plans(plan, re_extracted.plan)
         st.set_output({"match": not diffs, "diffs": diffs})
 

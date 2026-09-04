@@ -65,7 +65,7 @@ class _StageCtx:
 
 
 class StageLogger:
-    """Writes logs/runs/{run_id}.jsonl. Level from TPPS_LOG_LEVEL (INFO default).
+    """Writes one JSONL run log per run_id. Level from TPPS_LOG_LEVEL (INFO default).
 
     At INFO only the stage summaries are stored; at DEBUG the raw LLM
     prompt/response payloads passed via set_debug are stored too (redacted).

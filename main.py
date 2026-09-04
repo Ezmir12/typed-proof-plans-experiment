@@ -14,7 +14,8 @@ from tpps.config import load_config, make_store
 def main():
     ap = argparse.ArgumentParser(description="TPPS prototype demo / NL pipeline.")
     ap.add_argument("--pipeline", metavar="TEXT", default=None,
-                    help="run one NL string through the logged pipeline")
+                    help="run one NL string through the logged pipeline "
+                         "(extractor: TPPS_EXTRACTOR=llm|demo|hooks, default llm)")
     ap.add_argument("--log-dir", default="logs/runs")
     args = ap.parse_args()
     if args.pipeline is not None:
