@@ -42,6 +42,8 @@ def sort_library() -> SortRegistry:
         Attribute("no-remove", "structural"),
     ), erasure_target="MM2.Rule"))
     reg.declare(SortDecl("Strategy", (), (), erasure_target="Rewriting.Strategy"))
+    reg.declare(SortDecl("Ordering", ("A",), (Attribute("well_founded", "structural"),),
+                         erasure_target="Order"))
     return reg
 
 
@@ -68,8 +70,18 @@ SCHEMA_IDS = ("WFMeasure", "LPO", "PolyInterp", "CriticalPairLemma", "Newman",
 
 def schema_library() -> SchemaRegistry:
     reg = SchemaRegistry()
-    reg.register(_schema("WFMeasure", ["Decreases"], "Terminates",
-                         [(CondTag.S, "wf-order")], soundness="WellFounded.lt_wf"))
+    reg.register(MethodSchema(
+        id="WFMeasure",
+        premises=[Shape("Decreases", (Var("m"), Var("R")), sort="TRS"),
+                  Shape("WF", (Var("O"),), sort="Ordering")],
+        conclusion=Shape("Terminates", (Var("R"),), sort="TRS"),
+        conditions=[Condition(CondTag.S, "wf-order")],
+        obligation_templates=[Shape("Bounded", (Var("R"), Var("U")), sort="TRS"),
+                              Shape("NoRemove", (Var("R"),), sort="TRS"),
+                              Shape("Productive", (Var("R"),), sort="TRS")],
+        roles=("RankingFunction", "Invariant"),
+        checker=lambda ctx: True, elaborator="elab-WFMeasure",
+        soundness_theorem="WellFounded.lt_wf"))
     reg.register(_schema("LPO", ["Decreases"], "Terminates",
                          [(CondTag.C, "lpo-oriented")], soundness="CeTA.LPO"))
     reg.register(_schema("PolyInterp", ["Decreases"], "Terminates",
