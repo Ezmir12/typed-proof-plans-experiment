@@ -29,7 +29,10 @@ def test_example_file_loads(tmp_path, monkeypatch):
     local = tmp_path / "ex.toml"
     shutil.copy(EXAMPLE, local)
     s = load_config(local)
-    assert s.llm.provider == "openai-compatible"
+    assert s.llm.provider == "deepinfra"
+    assert s.llm.model == "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B"
+    assert s.llm.base_url == "https://api.deepinfra.com/v1/openai"
+    assert s.llm.api_key_env == "DEEPINFRA_TOKEN"
     assert s.llm.timeout_s == 60.0
     assert s.kernel.system == "lean4+mathlib"
     assert s.store.backend == "mock"

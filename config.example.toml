@@ -2,11 +2,11 @@
 # Secrets are supplied via environment variables (see api_key_env below).
 
 [llm]
-provider = "openai-compatible"
-model = "gpt-4o-mini"
-base_url = "https://api.openai.com/v1"
+provider = "deepinfra"
+model = "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B"
+base_url = "https://api.deepinfra.com/v1/openai"
 # Name of the env var holding the API key. The key itself never lives in a file.
-api_key_env = "TPPS_LLM_API_KEY"
+api_key_env = "DEEPINFRA_TOKEN"
 timeout_s = 60.0
 max_retries = 2
 

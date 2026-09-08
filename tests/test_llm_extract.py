@@ -25,7 +25,7 @@ class ScriptedClient:
         self.responses = list(responses)
         self.calls = []
 
-    def chat_json(self, system, user):
+    def chat_json(self, system, user, **kwargs):
         self.calls.append((system, user))
         resp = self.responses.pop(0)
         if isinstance(resp, Exception):

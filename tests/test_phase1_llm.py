@@ -1,7 +1,7 @@
 """Phase 1 graded acceptance: real LlmExtractor, no hand-built plans.
 
-Skipped without a live backend key. These call a real model (costs real
-money and wall-clock time); they are release gates, not unit tests.
+Skipped by default (slow, costs real money): set TPPS_RUN_LIVE_TESTS=1 with
+a funded backend key to run. These are release gates, not unit tests.
 The offline contract machinery is covered by scripted-client unit tests.
 """
 import os
@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from tpps.adapters.llm import HttpLlmClient
+from tpps.adapters.llm import client_for
 from tpps.adapters.llm_extract import LlmExtractor
 from tpps.adapters.vocab import export_vocabulary
 from tpps.config import load_config
@@ -20,8 +20,11 @@ from tpps.pipeline import PipelineHooks, run_pipeline
 
 FIX = Path(__file__).resolve().parent.parent / "files"
 HAS_LLM = bool(load_config().llm.api_key)
+RUN_LIVE = os.environ.get("TPPS_RUN_LIVE_TESTS") == "1" and HAS_LLM
 
-pytestmark = pytest.mark.skipif(not HAS_LLM, reason="needs live LLM backend")
+pytestmark = pytest.mark.skipif(
+    not RUN_LIVE,
+    reason="live LLM tests skipped (TPPS_RUN_LIVE_TESTS=1 + funded key to run)")
 
 T01_NOVEL = ("The cleanup sweeps finish on any finite directory tree, because "
              "each sweep deletes at least one temporary file, creates nothing "
@@ -47,7 +50,7 @@ def _live_hooks():
     settings = load_config()
     reg = example_registry()
     vocab = export_vocabulary(reg, RW.sort_library(), list(RW.ROLES))
-    ext = LlmExtractor(HttpLlmClient(settings.llm), reg, vocab)
+    ext = LlmExtractor(client_for(settings.llm), reg, vocab)
     hooks = PipelineHooks(extract_fn=ext.extract,
                           feedback_fn=ext.extract_with_diagnostic,
                           registry_fn=example_registry)

@@ -149,7 +149,7 @@ def _resolve_extractor(hooks: PipelineHooks, registry: SchemaRegistry,
     attempt_fn(nl_text, diagnostic) runs one extraction attempt. label names
     the concrete extractor class for the log. Unknown modes raise ValueError.
     """
-    from tpps.adapters.llm import HttpLlmClient
+    from tpps.adapters.llm import client_for
     from tpps.adapters.llm_extract import LlmExtractor
     from tpps.adapters.vocab import export_vocabulary
     from tpps.domains import rewriting as RW
@@ -169,7 +169,7 @@ def _resolve_extractor(hooks: PipelineHooks, registry: SchemaRegistry,
         return "demo", "DemoExtractor", lambda nl, diag: _demo_extract(nl), False, None
     if mode == "llm":
         vocab = export_vocabulary(registry, RW.sort_library(), list(RW.ROLES))
-        ext = LlmExtractor(HttpLlmClient(settings.llm), registry, vocab)
+        ext = LlmExtractor(client_for(settings.llm), registry, vocab)
         def llm_trace() -> dict:
             return {"prompt": ext.last_prompt, "response": ext.last_response}
         return "llm", type(ext).__name__, ext.extract, True, llm_trace

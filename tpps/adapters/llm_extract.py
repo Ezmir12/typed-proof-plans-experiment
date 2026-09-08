@@ -57,13 +57,14 @@ class LlmExtractor:
     """
 
     def __init__(self, client, registry: SchemaRegistry, vocab: dict,
-                 plan_id: str = "extracted") -> None:
+                 plan_id: str = "extracted", max_tokens: int = 8000) -> None:
         self.client = client
         self.registry = registry
         self.vocab = vocab
         self.schemas, self.heads, self.roles = allowed_names(vocab)
         self.system = SYSTEM_TEMPLATE.format(vocab=vocab_prompt(vocab))
         self.plan_id = plan_id
+        self.max_tokens = max_tokens
         self.last_prompt = ""
         self.last_response: dict | None = None
 
@@ -75,7 +76,8 @@ class LlmExtractor:
                      f"{diagnostic}\nFix exactly what the diagnostic says; "
                      "change nothing else.")
         self.last_prompt = user
-        raw = self.client.chat_json(self.system, user)
+        raw = self.client.chat_json(self.system, user,
+                                    max_tokens=self.max_tokens)
         self.last_response = raw
         return self._build(nl_text, raw)
 

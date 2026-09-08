@@ -91,8 +91,9 @@ def _coerce_value(raw: str, field_type) -> object:
 
 
 def _parse_dotenv(path: Path) -> dict[str, str]:
-    """Minimal KEY=VALUE parser. Only TPPS_* keys are honored; the process
-    environment is never mutated."""
+    """Minimal KEY=VALUE parser. Only TPPS_* keys act as settings overrides,
+    but the API key may live under any name, so all keys are returned and
+    the caller filters. The process environment is never mutated."""
     values: dict[str, str] = {}
     for line in path.read_text().splitlines():
         line = line.strip()
@@ -104,8 +105,7 @@ def _parse_dotenv(path: Path) -> dict[str, str]:
         key, val = key.strip(), val.strip()
         if len(val) >= 2 and val[0] == val[-1] and val[0] in ("'", '"'):
             val = val[1:-1]
-        if key.startswith("TPPS_"):
-            values[key] = val
+        values[key] = val
     return values
 
 
