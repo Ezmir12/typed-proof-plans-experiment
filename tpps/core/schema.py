@@ -1,4 +1,8 @@
-"""Method schema registry with three-way dividing rule + trust gate."""
+"""Method schema registry with three-way dividing rule + trust gate.
+
+`TrustStatus` and `TrustRecord` here are the canonical trust-state data model.
+Policy-level promotion validation is layered on top.
+"""
 from __future__ import annotations
 
 import random
@@ -75,7 +79,7 @@ class MethodSchema:
 
 
 def fuzz_terminate(schema: MethodSchema, trials: int = 1000, seed: int = 0) -> bool:
-    """Bounded termination probe for schema checkers (prototype scale)."""
+    """Bounded termination probe for schema checkers."""
     rng = random.Random(seed)
     assert schema.checker is not None
     for _ in range(trials):
@@ -98,20 +102,51 @@ class SchemaRegistry:
         self.schemas[schema.id] = schema
         return schema
 
-    def promote(self, schema_id: str, kernel_verified: bool,
-                bootstrap_two_independent: bool = False) -> MethodSchema:
-        """Promotion gate: kernel verification or flagged bootstrap review required."""
+    def promote(self, schema_id: str, kernel_verified: bool | None = None,
+                bootstrap_two_independent: bool = False,
+                *, decision=None, model_originated: bool = False) -> MethodSchema:
+        """Promote a schema through an explicit decision.
+
+        New callers should pass ``decision``. The boolean arguments are
+        retained for review-level compatibility; kernel verification requires
+        an explicit artifact-backed decision.
+        """
         s = self.schemas[schema_id]
-        if kernel_verified:
-            s.trust = TrustRecord(TrustStatus.KERNEL_VERIFIED, s.trust.evidence,
-                                  version=s.trust.version + 1)
-        elif bootstrap_two_independent:
-            s.trust = TrustRecord(TrustStatus.REVIEWED, s.trust.evidence,
-                                  bootstrap_two_independent=True,
-                                  version=s.trust.version + 1)
-        else:
-            raise RegistryError(f"schema {schema_id!r} cannot be promoted without "
-                                "kernel verification or flagged bootstrap review")
+        from .trust import TrustDecision, can_promote
+
+        if decision is None:
+            if kernel_verified:
+                raise RegistryError(
+                    "kernel verification requires an explicit artifact-backed "
+                    "trust decision"
+                )
+            if bootstrap_two_independent:
+                decision = TrustDecision(
+                    TrustStatus.REVIEWED,
+                    "compatibility bootstrap review",
+                    reviewer_refs=("legacy-reviewer-1", "legacy-reviewer-2"),
+                )
+            else:
+                raise RegistryError(
+                    f"schema {schema_id!r} cannot be promoted without "
+                    "an explicit trust decision"
+                )
+
+        if not can_promote(s.trust.status, decision,
+                           model_originated=model_originated):
+            raise RegistryError(
+                f"schema {schema_id!r} cannot be promoted from "
+                f"{s.trust.status.value!r} to {decision.status.value!r}"
+            )
+
+        s.trust = TrustRecord(
+            decision.status,
+            s.trust.evidence,
+            bootstrap_two_independent=(
+                decision.status is TrustStatus.REVIEWED
+            ),
+            version=s.trust.version + 1,
+        )
         return s
 
     def usable_in_committed(self, schema_id: str) -> bool:
