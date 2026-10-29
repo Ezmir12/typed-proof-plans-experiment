@@ -7,9 +7,12 @@ from tpps.core.evidence import (BOTTOM, Certified, Empirical, Evidence, Formal, 
                                 Reviewed, aggregate, check_support_consistent, conjoin,
                                 is_closed, is_kernel_refuted)
 from tpps.core.plan import Layer, MethodInstance, Plan, Provenance, StmtNode
-from tpps.core.schema import CondTag, Condition, MethodSchema, SchemaRegistry, TrustRecord
+from tpps.core.schema import (CondTag, Condition, MethodSchema, SchemaRegistry,
+                              TrustRecord, TrustStatus)
+from tpps.core.trust import TrustDecision
 from tpps.core.sorts import Attribute, SortDecl, SortRegistry
 from tpps.core.stmt import (App, CheckKind, Const, Shape, Stmt, Var, alpha_eq, bind,
+                            SubstitutionError, apply_subst, is_paper_shape_head,
                             run_check, unify_exact)
 from tpps.reasoning.transform import (AuxiliaryFunction, Bypass, Compress, Contradiction,
                                       FixPoint, GeneralizeSpecialize, SortClashError,
@@ -84,6 +87,16 @@ def test_sort_registry_routes_attributes():
     assert reg.regimes.subsumes("general", "specific")
     assert reg.regimes.subsumes("x", "x")
     assert not reg.regimes.subsumes("specific", "general")
+    assert reg.regimes.explain("general", "specific") == (
+        "'general' subsumes 'specific'"
+    )
+    assert "unknown regime relationship" in reg.regimes.explain("x", "y")
+
+
+def test_sortdecl_is_canonical_sort_type():
+    import tpps.core.sorts as S
+    assert hasattr(S, "SortDecl")
+    assert not hasattr(S, "Sort")
 
 
 # --- Statements ---
@@ -114,6 +127,25 @@ def test_unify_occurs_check():
     assert unify_exact(Var("x"), App("f", (Var("x"),))) is None
 
 
+def test_substitution_is_recursive_and_rejects_cycles():
+    assert apply_subst(Var("x"), {"x": Var("y"), "y": Const("c")}) == Const("c")
+    with pytest.raises(SubstitutionError, match="cyclic substitution"):
+        apply_subst(Var("x"), {"x": Var("y"), "y": Var("x")})
+
+
+def test_substitution_does_not_capture_de_bruijn_bound_variables():
+    term = bind("forall", "x", App("P", (Var("x"), Var("y"))))
+    result = apply_subst(term, {"y": Const("c")})
+    assert alpha_eq(result, bind("forall", "z", App("P", (Var("z"), Const("c")))))
+
+
+def test_paper_shape_head_vocabulary_marker():
+    for head in ("UniqueNF", "Complete", "SupOnCircle", "Equal",
+                 "Extends", "Exists", "ForAll", "Limit"):
+        assert is_paper_shape_head(head)
+    assert not is_paper_shape_head("NonPaperHead")
+
+
 # --- Schemas ---
 def _good_schema():
     return MethodSchema(id="S", premises=[Shape("A", ())], conclusion=Shape("B", ()),
@@ -141,6 +173,53 @@ def test_checker_termination_probe():
     assert fuzz_terminate(_good_schema(), trials=100)
 
 
+def test_typecheck_rejects_conflicting_stored_substitution():
+    reg = SchemaRegistry()
+    reg.register(MethodSchema(
+        id="S",
+        premises=[Shape("A", (Var("x"),))],
+        conclusion=Shape("B", (Var("x"),)),
+        conditions=[Condition(CondTag.S, "p")],
+        checker=lambda ctx: True,
+        elaborator="e",
+        soundness_theorem="t",
+    ))
+    reg.promote("S", decision=TrustDecision(
+        TrustStatus.REVIEWED, "test review", reviewer_refs=("a", "b")))
+    plan = Plan("substitution")
+    plan.add_stmt(StmtNode("a", Stmt(shape=Shape("A", (Const("c"),)))))
+    plan.add_stmt(StmtNode("b", Stmt(shape=Shape("B", (Const("c"),)))))
+    plan.add_inst(MethodInstance("e", "S", ["a"], "b",
+                                 substitution={"x": Const("wrong")}))
+    report = T.check_plan(plan, reg)
+    assert not report.ok
+    assert "stored substitution conflicts" in report.instances[0].diagnostic
+
+
+def test_typecheck_matches_obligations_as_typed_shapes():
+    schema = MethodSchema(
+        id="Obligation",
+        premises=[Shape("A", (Var("x"),))],
+        conclusion=Shape("B", (Var("x"),)),
+        conditions=[],
+        obligation_templates=[Shape("Bounded", (Var("x"),))],
+        checker=lambda ctx: True,
+        elaborator="elab",
+        soundness_theorem="theorem",
+    )
+    reg = SchemaRegistry()
+    reg.register(schema)
+    reg.promote("Obligation", decision=TrustDecision(
+        TrustStatus.REVIEWED, "test review", reviewer_refs=("a", "b")))
+    plan = Plan("obligation")
+    plan.add_stmt(StmtNode("a", Stmt(shape=Shape("A", (Const("c"),)))))
+    plan.add_stmt(StmtNode("b", Stmt(shape=Shape("B", (Const("c"),)))))
+    plan.add_stmt(StmtNode("wrong", Stmt(shape=Shape("Bounded", (Const("d"),)))))
+    plan.add_inst(MethodInstance("e", "Obligation", ["a"], "b",
+                                 obligations=["wrong"]))
+    assert not T.check_plan(plan, reg).ok
+
+
 # --- Plans ---
 def _chain_plan(layer=Layer.COMMITTED):
     p = Plan("c")
@@ -158,6 +237,33 @@ def test_committed_cycle_detected_speculative_allowed():
     for i in p.insts.values():
         i.layer = Layer.SPECULATIVE
     assert p.committed_cycle() is None
+
+
+def test_plan_rejects_duplicate_ids_and_reports_graph_errors():
+    p = Plan("invariants")
+    p.add_stmt(StmtNode("a", Stmt(shape=Shape("A", ()))))
+    with pytest.raises(ValueError, match="duplicate statement id"):
+        p.add_stmt(StmtNode("a", Stmt(shape=Shape("A", ()))))
+
+    p.add_stmt(StmtNode("b", Stmt(shape=Shape("B", ()))))
+    p.add_inst(MethodInstance("e", "S", ["a"], "b"))
+    with pytest.raises(ValueError, match="duplicate instance id"):
+        p.add_inst(MethodInstance("e", "S", ["a"], "b"))
+
+
+def test_typecheck_reports_malformed_references_deterministically():
+    p = Plan("malformed")
+    p.add_stmt(StmtNode("goal", Stmt(shape=Shape("B", ()))))
+    inst = MethodInstance("e", "S", ["missing-premise"], "goal",
+                          ["missing-obligation"])
+    p.insts[inst.id] = inst
+    report = T.check_plan(p, SchemaRegistry())
+    assert not report.ok
+    assert report.graph_errors == [
+        "instance 'e' premise[0] 'missing-premise' does not reference a statement",
+        "instance 'e' obligation[0] 'missing-obligation' does not reference a statement",
+    ]
+    assert "missing plan references" in report.instances[0].diagnostic
 
 
 def test_atoms_roundtrip():
@@ -275,3 +381,10 @@ def test_soundness_gates():
     assert not elaboration_ready(True, True, True, False)  # needs all legs
     assert transformation_sound(True)
     assert not transformation_sound(False)  # no closure before discharge
+
+
+def test_transforms_are_not_method_schemas():
+    from tpps.reasoning.transform import PlanTransform
+    t = Bypass(Shape("A", ()), Shape("A", ()))
+    assert isinstance(t, PlanTransform)
+    assert not isinstance(t, MethodSchema)

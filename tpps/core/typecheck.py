@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 
 from .plan import Layer, MethodInstance, Plan
 from .schema import CondTag, SchemaRegistry
-from .stmt import CheckKind, CheckResult, Stmt, run_check, unify_exact
+from .stmt import CheckKind, CheckResult, Shape, Stmt, run_check, unify_exact
 
 
 @dataclass
@@ -30,6 +30,7 @@ class InstanceReport:
 class PlanReport:
     ok: bool
     instances: list[InstanceReport] = field(default_factory=list)
+    graph_errors: list[str] = field(default_factory=list)
     scope_errors: list[str] = field(default_factory=list)
     committed_cycle: list[str] | None = None
     diagnostic: str = ""
@@ -43,6 +44,20 @@ def check_instance(plan: Plan, inst: MethodInstance, registry: SchemaRegistry,
                    cert_ok: set[str] | None = None) -> InstanceReport:
     """Well-typedness check. Pure: never mutates the plan."""
     rep = InstanceReport(inst_id=inst.id)
+    missing = []
+    if inst.conclusion not in plan.stmts:
+        missing.append(f"conclusion {inst.conclusion!r}")
+    missing.extend(
+        f"premise {node_id!r}" for node_id in inst.premises
+        if node_id not in plan.stmts
+    )
+    missing.extend(
+        f"obligation {node_id!r}" for node_id in inst.obligations
+        if node_id not in plan.stmts
+    )
+    if missing:
+        rep.diagnostic = "missing plan references: " + ", ".join(missing)
+        return rep
     cert_ok = cert_ok or set(inst.certificates)
     if inst.schema_ref not in registry.schemas:
         rep.diagnostic = f"unknown schema {inst.schema_ref!r}"
@@ -78,6 +93,13 @@ def check_instance(plan: Plan, inst: MethodInstance, registry: SchemaRegistry,
                 break
             subst[k] = v
     rep.premises_instantiate = ok
+    if rep.premises_instantiate and inst.substitution:
+        if any(subst.get(name) != value
+               for name, value in inst.substitution.items()):
+            rep.premises_instantiate = False
+            rep.diagnostic = "stored substitution conflicts with inferred substitution"
+        else:
+            subst = dict(inst.substitution)
 
     # (2) conclusion subsumed by Ψσ (regime-aware).
     concl_shape = plan.stmts[inst.conclusion].stmt.shape
@@ -88,22 +110,30 @@ def check_instance(plan: Plan, inst: MethodInstance, registry: SchemaRegistry,
     rep.conclusion_subsumed = r2.ok
 
     # (3) every side condition has a valid certificate.
+    obligation_heads = {
+        plan.stmts[o].stmt.shape.head for o in inst.obligations
+    }
     rep.side_conditions_certified = all(
-        (c.tag is CondTag.S) or (c.predicate_ref in cert_ok)
+        c.tag is CondTag.S
+        or (c.tag is CondTag.C and c.predicate_ref in cert_ok)
+        or (c.tag is CondTag.OBL and c.predicate_ref in obligation_heads)
         for c in schema.conditions
     )
 
     # (4) every obligation template instantiated by σ is present in obl.
-    obl_shapes = {plan.stmts[o].stmt.shape.head for o in inst.obligations}
+    actual_obligations = [plan.stmts[o].stmt.shape for o in inst.obligations]
+    expected_obligations = [
+        template.instantiate(subst) for template in schema.obligation_templates
+    ]
     rep.obligations_present = all(
-        t.head in obl_shapes or not t.head for t in schema.obligation_templates
-    ) if schema.obligation_templates else True
-    if not schema.obligation_templates:
-        rep.obligations_present = True
+        any(_shape_matches(expected, actual)
+            for actual in actual_obligations)
+        for expected in expected_obligations
+    )
 
     if rep.ok:
         rep.diagnostic = "ok"
-    else:
+    elif not rep.diagnostic:
         rep.diagnostic = (
             f"prem={rep.premises_instantiate} concl={rep.conclusion_subsumed} "
             f"certs={rep.side_conditions_certified} obls={rep.obligations_present}")
@@ -113,6 +143,15 @@ def check_instance(plan: Plan, inst: MethodInstance, registry: SchemaRegistry,
 def _trivial_regimes():
     from .sorts import RegimeOrder
     return RegimeOrder()
+
+
+def _shape_matches(expected: Shape, actual: Shape) -> bool:
+    return (
+        expected.head == actual.head
+        and expected.args == actual.args
+        and expected.regime == actual.regime
+        and expected.sort == actual.sort
+    )
 
 
 def check_well_scoped(plan: Plan) -> list[str]:
@@ -172,9 +211,10 @@ def _forward_closure(plan: Plan, inst_id: str) -> set[str]:
 
 def check_plan(plan: Plan, registry: SchemaRegistry) -> PlanReport:
     """Full check: well-typed + well-scoped + committed acyclicity. Pure."""
+    graph_errors = plan.graph_errors()
     inst_reports = [check_instance(plan, i, registry) for i in plan.insts.values()]
     scope_errors = check_well_scoped(plan)
-    cycle = plan.committed_cycle()
+    cycle = plan.committed_cycle() if not graph_errors else None
     # Unpromoted schemas must not appear in committed derivations.
     trust_errors = []
     for inst in plan.insts.values():
@@ -182,12 +222,17 @@ def check_plan(plan: Plan, registry: SchemaRegistry) -> PlanReport:
             if not registry.usable_in_committed(inst.schema_ref):
                 trust_errors.append(
                     f"unpromoted schema {inst.schema_ref!r} in committed instance {inst.id!r}")
-    ok = (all(r.ok for r in inst_reports) and not scope_errors
+    ok = (not graph_errors and all(r.ok for r in inst_reports) and not scope_errors
           and cycle is None and not trust_errors)
-    diag = "; ".join(trust_errors)
+    instance_errors = [
+        f"instance {report.inst_id!r}: {report.diagnostic}"
+        for report in inst_reports if not report.ok and report.diagnostic
+    ]
+    diag = "; ".join(graph_errors + trust_errors + instance_errors)
     if cycle:
         diag += f" committed cycle: {' -> '.join(cycle)}"
-    return PlanReport(ok=ok, instances=inst_reports, scope_errors=scope_errors,
+    return PlanReport(ok=ok, instances=inst_reports, graph_errors=graph_errors,
+                      scope_errors=scope_errors,
                       committed_cycle=cycle, diagnostic=diag)
 
 
