@@ -82,16 +82,27 @@ def alpha_eq(a: Term, b: Term) -> bool:
 Subst = dict[str, Term]
 
 
-def apply_subst(t: Term, s: Subst) -> Term:
+class SubstitutionError(ValueError):
+    """Invalid or cyclic substitution."""
+
+
+def apply_subst(t: Term, s: Subst, _active: frozenset[str] = frozenset()) -> Term:
     if isinstance(t, Var):
-        return s.get(t.name, t)
+        replacement = s.get(t.name)
+        if replacement is None:
+            return t
+        if t.name in _active:
+            raise SubstitutionError(f"cyclic substitution for {t.name!r}")
+        return apply_subst(replacement, s, _active | {t.name})
     if isinstance(t, (BVar, Const)):
         return t
     if isinstance(t, App):
-        return App(t.head, tuple(apply_subst(a, s) for a in t.args))
+        return App(t.head, tuple(apply_subst(a, s, _active) for a in t.args))
     if isinstance(t, Binder):
         assert t.body is not None
-        return Binder(t.kind, apply_subst(t.body, s))
+        # Bound variables are represented by BVar, so substitutions for free
+        # variables cannot capture them.
+        return Binder(t.kind, apply_subst(t.body, s, _active))
     raise TypeError(f"unknown term {t!r}")
 
 
@@ -111,9 +122,9 @@ def _occurs(name: str, t: Term) -> bool:
 def unify_exact(pattern: Term, target: Term, subst: Subst | None = None) -> Subst | None:
     """First-order unification; Var in pattern acts as a match variable.
 
-    Miller-pattern fragment: a `?P`-style second-order variable applied to
-    distinct bound variables is treated as an opaque match variable here;
-    full higher-order search is out of scope for the prototype.
+    Higher-order variables and applications are not represented by this term
+    model. Callers must use a dedicated higher-order unifier rather than
+    interpreting this function as one.
     """
     subst = {} if subst is None else dict(subst)
     if isinstance(pattern, Var):
@@ -148,6 +159,23 @@ def unify_exact(pattern: Term, target: Term, subst: Subst | None = None) -> Subs
 
 
 # --- Shapes, contexts, sequents ---
+
+# Paper-facing statement-shape heads used across Sections 6-8.
+# This is a vocabulary marker, not a closed-world validator.
+PAPER_SHAPE_HEADS: frozenset[str] = frozenset({
+    "UniqueNF",
+    "Complete",
+    "SupOnCircle",
+    "Equal",
+    "Extends",
+    "Exists",
+    "ForAll",
+    "Limit",
+})
+
+
+def is_paper_shape_head(head: str) -> bool:
+    return head in PAPER_SHAPE_HEADS
 
 @dataclass(frozen=True)
 class Shape:

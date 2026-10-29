@@ -1,4 +1,7 @@
-"""Parametrized many-sorted types with structural/certified attributes."""
+"""Parametrized many-sorted types with structural/certified attributes.
+
+`SortDecl` is the canonical sort-declaration type for this repository.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -48,6 +51,14 @@ class RegimeOrder:
         if general == specific:
             return True
         return (general, specific) in self.pairs
+
+    def explain(self, general: str, specific: str) -> str:
+        """Explain a known relationship or explicitly report uncertainty."""
+        if general == specific:
+            return f"{general!r} subsumes itself"
+        if (general, specific) in self.pairs:
+            return f"{general!r} subsumes {specific!r}"
+        return f"unknown regime relationship: {general!r} vs {specific!r}"
 
 
 class SortRegistry:

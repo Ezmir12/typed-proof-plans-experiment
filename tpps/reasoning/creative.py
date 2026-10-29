@@ -30,9 +30,15 @@ CRITIC_CLASSES = ("missing lemma", "missing library entry", "bad decomposition",
 
 @dataclass(frozen=True)
 class TypedResidual:
+    """Canonical residual type for abduction results."""
     shape: Shape
     origin_schema: str  # schema whose premise could not be produced
     context: str = ""
+
+    @property
+    def producer_schema(self) -> str:
+        """Alias used by some docs/plans; canonical field remains origin_schema."""
+        return self.origin_schema
 
 
 def backward_chain(target: Shape, conclusion_index: list[tuple[str, Shape]],
@@ -54,7 +60,7 @@ def backward_chain(target: Shape, conclusion_index: list[tuple[str, Shape]],
     return residuals
 
 
-# Prototype premise table, extended by domain modules at import time.
+# Premise table, extended by domain modules at import time.
 PREMISE_TABLE: dict[str, list[Shape]] = {}
 
 
