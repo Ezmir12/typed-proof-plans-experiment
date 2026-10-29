@@ -40,7 +40,7 @@ class KernelSettings:
 
 @dataclass(frozen=True)
 class StoreSettings:
-    owner: str = "tpps-prototype"
+    owner: str = "typed-proof-plans"
     backend: str = "mock"
 
 

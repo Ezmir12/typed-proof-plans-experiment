@@ -3,7 +3,8 @@ import json
 
 from tpps.adapters.extract import CandidatePlan, ExtractedNode
 from tpps.core.plan import MethodInstance, Plan, Provenance, StmtNode
-from tpps.core.schema import MethodSchema, SchemaRegistry
+from tpps.core.schema import MethodSchema, SchemaRegistry, TrustStatus
+from tpps.core.trust import TrustDecision
 from tpps.core.stmt import Shape, Stmt, Var
 from tpps.pipeline import PipelineHooks, run_pipeline
 
@@ -17,7 +18,8 @@ def _mock_registry() -> SchemaRegistry:
         conclusion=Shape("ClaimB", (Var("x"),)), conditions=[],
         checker=lambda ctx: True, elaborator="elab-Step",
         soundness_theorem="Thm-Step"))
-    reg.promote("Step", kernel_verified=True)
+    reg.promote("Step", decision=TrustDecision(
+        TrustStatus.KERNEL_VERIFIED, "test artifact", artifact_ref="test://Step"))
     return reg
 
 

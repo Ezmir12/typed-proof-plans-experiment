@@ -93,7 +93,7 @@ def schema_library() -> SchemaRegistry:
 
 # --- Certified procedures, each emitting re-checkable certs ---
 def domain_containment(a: str, r: float, b: str, R: float) -> Certificate | None:
-    """D(a,r) ⊆ D(b,R) iff |a−b|+r ≤ R (names parsed as floats in prototype)."""
+    """D(a,r) ⊆ D(b,R) iff |a−b|+r ≤ R for numeric coordinates."""
     try:
         if abs(float(a) - float(b)) + r <= R:
             return Certificate("domain-calculus",

@@ -1,1 +1,1 @@
-"""Typed Proof Plan System (TPPS) prototype."""
+"""Typed Proof Plan System (TPPS)."""

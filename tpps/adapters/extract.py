@@ -51,7 +51,7 @@ def semantic_review(candidate: CandidatePlan, flags: dict[str, str]) -> list[Sem
     """Semantic-consistency review.
 
     `flags` maps node id → suspected mistranslation kind (produced by a
-    reviewer/critic; the prototype treats the reviewer as an input). A
+    reviewer/critic; the reviewer is represented as an explicit input). A
     well-typed but mistranslated extraction is caught here, never accepted.
     """
     issues = []

@@ -5,7 +5,7 @@ from tpps.reasoning import creative as C
 from tpps.adapters import render as R
 from tpps.reasoning.creative import (CRITIC_CLASSES, Alignment, FailureCertificate,
                                      SignatureMorphism, align_by_schema, anti_unify_shapes,
-                                     backward_chain, blend, BlendRejected, classify_residual,
+                                     TypedResidual, backward_chain, blend, BlendRejected, classify_residual,
                                      propose_barrier, score_alignment)
 from tpps.core.evidence import Evidence, Formal, Reviewed
 from tpps.adapters.extract import (MISTRANSLATION_KINDS, ExtractedNode, accept,
@@ -36,6 +36,12 @@ def test_abduction_residual_and_seven_critic_classes():
              "refuted candidate", "overstrong target", "representation mismatch",
              "auxiliary construction")}
     assert seen == set(CRITIC_CLASSES)
+
+
+def test_typed_residual_is_canonical_and_keeps_alias():
+    r = TypedResidual(shape=Shape("NeedLemma", ()), origin_schema="S")
+    assert r.origin_schema == "S"
+    assert r.producer_schema == "S"
 
 
 def test_analogy_lgg_leaves_free_vars_and_scores():

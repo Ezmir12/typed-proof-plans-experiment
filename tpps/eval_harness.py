@@ -1,4 +1,4 @@
-"""Nine measurement protocols (prototype: in-memory corpora)."""
+"""Measurement protocols for typed proof-plan evaluation."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field

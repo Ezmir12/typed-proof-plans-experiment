@@ -19,7 +19,7 @@ class CommitRecord:
 
 
 class MockStore:
-    def __init__(self, owner: str = "tpps-prototype") -> None:
+    def __init__(self, owner: str = "typed-proof-plans") -> None:
         self.owner = owner
         self.atoms: dict[str, str] = {}  # content-hash -> atom
         self.commits: list[CommitRecord] = []

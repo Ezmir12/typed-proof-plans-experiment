@@ -31,7 +31,7 @@ VOCABULARY (the ONLY schema names, statement heads, and role names you may emit)
 OUTPUT CONTRACT (reply with exactly one JSON object, nothing else):
 {{
   "nodes": [{{"id": str, "shape": str, "args": [{{"var": str}} | {{"const": str}}],
-              "regime": str, "source_span": str, "confidence": number}}],
+              "regime": str, "sort": str, "source_span": str, "confidence": number}}],
   "instances": [{{"id": str, "schema": str, "premises": [str],
                   "conclusion": str, "obligations": [str], "certificates": [str]}}],
   "roles": [{{"object": str, "role": str}}]
@@ -124,7 +124,8 @@ class LlmExtractor:
             conf = min(1.0, max(0.0, conf))
             shape = Shape(n["shape"],
                           tuple(self._arg(a) for a in n.get("args", [])),
-                          regime=str(n.get("regime", "")))
+                          regime=str(n.get("regime", "")),
+                          sort=str(n.get("sort", "")))
             plan.add_stmt(StmtNode(
                 str(n["id"]), Stmt(shape=shape),
                 provenance=Provenance(source_span=span,
@@ -141,6 +142,17 @@ class LlmExtractor:
                 str(i.get("id", "e")), str(i["schema"]), prem, concl,
                 obligations=obls, certificates=[str(c) for c in
                                                 i.get("certificates", [])]))
+            schema = self.registry.schemas[str(i["schema"])]
+            for obligation_id, template in zip(
+                    obls, schema.obligation_templates):
+                node = plan.stmts[obligation_id]
+                shape = node.stmt.shape
+                if not shape.sort and template.sort:
+                    node.stmt = Stmt(
+                        node.stmt.context,
+                        Shape(shape.head, shape.args, shape.regime, template.sort),
+                        node.stmt.regime,
+                    )
         for r in raw.get("roles", []):
             plan.roles.append(Role(str(r.get("object", "")),
                                    str(r["role"]), ""))

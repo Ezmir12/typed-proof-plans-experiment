@@ -4,6 +4,8 @@ from tpps.core import typecheck as T
 from tpps.domains import complex_analysis as CA
 from tpps.domains import rewriting as RW
 from tpps.domains.rewriting import mm2_step
+from tpps.core.schema import TrustStatus
+from tpps.core.trust import TrustDecision
 
 
 def test_rewriting_sorts_shapes_roles():
@@ -36,7 +38,9 @@ def test_mm2_step_semantics():
 
 def _promote_all(lib):
     for sid in lib.schemas:
-        lib.promote(sid, kernel_verified=True)
+        lib.promote(sid, decision=TrustDecision(
+            TrustStatus.KERNEL_VERIFIED, "test artifact",
+            artifact_ref=f"test://{sid}"))
     return lib
 
 

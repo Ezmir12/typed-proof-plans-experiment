@@ -18,6 +18,8 @@ from tpps.adapters.extract import (ExtractedNode, accept, build_candidate,
                                    semantic_review)
 from tpps.adapters.kernel import KernelInterface
 from tpps.core.plan import Plan
+from tpps.core.schema import TrustStatus
+from tpps.core.trust import TrustDecision
 from tpps.adapters.render import Register, lint_rendered, render
 from tpps.core.stmt import Shape, Var
 from tpps.adapters.store import MockStore
@@ -40,7 +42,9 @@ def test_rewriting_induction_lifecycle():
     induced = theorem6_completion()
     assert "Compress(plan-a, plan-b)" in induced.provenance
     reg.register(induced.schema)
-    reg.promote(induced.schema.id, kernel_verified=True)
+    reg.promote(induced.schema.id, decision=TrustDecision(
+        TrustStatus.KERNEL_VERIFIED, "test artifact",
+        artifact_ref=f"test://{induced.schema.id}"))
 
     failure = plan_c_failure()
     assert failure.failed_condition == "no-remove"
@@ -48,7 +52,9 @@ def test_rewriting_induction_lifecycle():
 
     corrected = one_way_delete_schema()
     reg.register(corrected)
-    reg.promote(corrected.id, kernel_verified=True)
+    reg.promote(corrected.id, decision=TrustDecision(
+        TrustStatus.KERNEL_VERIFIED, "test artifact",
+        artifact_ref=f"test://{corrected.id}"))
     assert reg.usable_in_committed(corrected.id)
 
 

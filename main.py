@@ -1,4 +1,4 @@
-"""TPPS prototype demo: Plan A induction + Liouville render + commit gate."""
+"""TPPS demonstration: Plan A induction, Liouville rendering, and commit gate."""
 import argparse
 
 from tpps.core import typecheck as T
@@ -12,7 +12,7 @@ from tpps.config import load_config, make_store
 
 
 def main():
-    ap = argparse.ArgumentParser(description="TPPS prototype demo / NL pipeline.")
+    ap = argparse.ArgumentParser(description="TPPS demonstration / NL pipeline.")
     ap.add_argument("--pipeline", metavar="TEXT", default=None,
                     help="run one NL string through the logged pipeline "
                          "(extractor: TPPS_EXTRACTOR=llm|demo|hooks, default llm)")
