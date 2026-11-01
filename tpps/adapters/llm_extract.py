@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from tpps.adapters.extract import CandidatePlan, ExtractedNode
 from tpps.adapters.vocab import allowed_names, vocab_prompt
-from tpps.core.plan import MethodInstance, Plan, Provenance, Role, StmtNode
+from tpps.core.plan import Layer, MethodInstance, Plan, Provenance, Role, StmtNode
 from tpps.core.schema import SchemaRegistry
 from tpps.core.stmt import Const, Shape, Stmt, Var
 
@@ -93,21 +93,59 @@ class LlmExtractor:
         raise ValueError(f"malformed arg (want var/const): {spec!r}")
 
     def _build(self, nl_text: str, raw: dict) -> CandidatePlan:
+        from tpps.core.trust import reject_model_authority
+
+        if not isinstance(raw, dict):
+            raise ValueError("malformed extraction: payload must be a dict")
+        reject_model_authority(raw)
         if raw.get("no_applicable_schema"):
             raise DeclinedExtraction(str(raw.get("reason", "")))
         nodespecs = raw.get("nodes", [])
         instspecs = raw.get("instances", [])
         if not isinstance(nodespecs, list) or not isinstance(instspecs, list):
             raise ValueError("malformed extraction: nodes/instances must be lists")
+
+        forbidden_authority = {
+            "checker",
+            "soundness_theorem",
+            "elaborator",
+            "kernel_artifact",
+            "evidence",
+            "trust_decision",
+            "trust_status",
+            "promotion",
+            "kernel_verified",
+            "artifact_ref",
+        }
+
         for n in nodespecs:
+            if not isinstance(n, dict):
+                raise ValueError("malformed node spec: must be an object")
+            reject_model_authority(n)
+            clash = forbidden_authority.intersection(n)
+            if clash:
+                raise ValueError(
+                    f"extracted node {n.get('id')!r} cannot supply {sorted(clash)!r}")
             if n.get("shape") not in self.heads:
                 raise VocabularyViolation(
                     f"shape {n.get('shape')!r} outside registry vocabulary")
+
         for i in instspecs:
+            if not isinstance(i, dict):
+                raise ValueError("malformed instance spec: must be an object")
+            reject_model_authority(i)
+            clash = forbidden_authority.intersection(i)
+            if clash:
+                raise ValueError(
+                    f"extracted instance {i.get('id')!r} cannot supply {sorted(clash)!r}")
             if i.get("schema") not in self.schemas:
                 raise VocabularyViolation(
                     f"schema {i.get('schema')!r} outside registry vocabulary")
+
         for r in raw.get("roles", []):
+            if not isinstance(r, dict):
+                raise ValueError("malformed role spec: must be an object")
+            reject_model_authority(r)
             if r.get("role") not in self.roles:
                 raise VocabularyViolation(
                     f"role {r.get('role')!r} outside registry vocabulary")
@@ -115,8 +153,11 @@ class LlmExtractor:
         plan = Plan(self.plan_id)
         for n in nodespecs:
             span = n.get("source_span", "")
-            if not isinstance(span, str) or span not in nl_text:
-                span = nl_text
+            if not isinstance(span, str) or not span or span not in nl_text:
+                raise ValueError(
+                    f"node {n.get('id')!r} source_span must be a non-empty "
+                    "substring of the proof text"
+                )
             try:
                 conf = float(n.get("confidence", 0.5))
             except (TypeError, ValueError):
@@ -130,7 +171,8 @@ class LlmExtractor:
                 str(n["id"]), Stmt(shape=shape),
                 provenance=Provenance(source_span=span,
                                       extraction_confidence=conf,
-                                      producing_attempt="llm-extract")))
+                                      producing_attempt="llm-extract"),
+                layer=Layer.SPECULATIVE))
         for i in instspecs:
             prem, concl = list(i.get("premises", [])), str(i.get("conclusion", ""))
             obls = list(i.get("obligations", []))
@@ -141,7 +183,9 @@ class LlmExtractor:
             plan.add_inst(MethodInstance(
                 str(i.get("id", "e")), str(i["schema"]), prem, concl,
                 obligations=obls, certificates=[str(c) for c in
-                                                i.get("certificates", [])]))
+                                                i.get("certificates", [])],
+                provenance=Provenance(producing_attempt="llm-extract"),
+                layer=Layer.SPECULATIVE))
             schema = self.registry.schemas[str(i["schema"])]
             for obligation_id, template in zip(
                     obls, schema.obligation_templates):

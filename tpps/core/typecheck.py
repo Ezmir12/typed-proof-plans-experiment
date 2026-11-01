@@ -58,7 +58,12 @@ def check_instance(plan: Plan, inst: MethodInstance, registry: SchemaRegistry,
     if missing:
         rep.diagnostic = "missing plan references: " + ", ".join(missing)
         return rep
-    cert_ok = cert_ok or set(inst.certificates)
+    if cert_ok is None:
+        cert_ok = (
+            set(inst.certificates)
+            if inst.provenance.producing_attempt != "llm-extract"
+            else set()
+        )
     if inst.schema_ref not in registry.schemas:
         rep.diagnostic = f"unknown schema {inst.schema_ref!r}"
         return rep
