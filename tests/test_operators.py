@@ -13,7 +13,7 @@ from tpps.adapters.extract import (MISTRANSLATION_KINDS, ExtractedNode, accept,
 from tpps.reasoning.induce import (Strategy, complete_lgg, corrected_schema_name)
 from tpps.adapters.kernel import Certificate, KernelInterface, recheck
 from tpps.adapters.llm import LlmClient, admit_fragment
-from tpps.core.plan import MethodInstance, Plan, StmtNode
+from tpps.core.plan import Layer, MethodInstance, Plan, StmtNode
 from tpps.adapters.render import Register, lint_rendered, render, smooth_with_llm
 from tpps.core.schema import CondTag, Condition
 from tpps.core.stmt import App, Const, Shape, Stmt, Var
@@ -113,6 +113,12 @@ def test_extraction_pipeline_catches_mistranslation():
         assert issues and issues[0].kind == kind
         assert not accept(cand, issues)
     assert accept(cand, semantic_review(cand, {}))
+
+
+def test_generic_extracted_candidates_are_speculative():
+    candidate = build_candidate("candidate", [_candidate().nodes[0]])
+    assert all(node.layer is Layer.SPECULATIVE
+               for node in candidate.plan.stmts.values())
 
 
 # --- Render ---
@@ -216,3 +222,74 @@ def test_commit_gate_typing_pass_and_retrieval():
     other = store.commit_gate_typing_pass(
         ["(plan other stmt n (seq [] Z))"], lambda: (True, ""))
     assert other.content_hash != rec.content_hash
+
+
+# --- Transform Boundaries ---
+def test_transform_records_applicability_provenance_and_soundness():
+    from tpps.reasoning.transform import (AuxiliaryFunction, Bypass, Compress,
+                                          Contradiction, FixPoint, GeneralizeSpecialize)
+    p = Plan("records")
+    p.add_stmt(StmtNode("s", Stmt(shape=Shape("A", (), sort="RelSpace"))))
+
+    # Bypass
+    bp = Bypass(Shape("A", (), sort="RelSpace"), Shape("B", (), sort="RelSpace"), blame="attempt-9")
+    r_bp = bp.apply(p)
+    assert r_bp is not None
+    assert r_bp.applicable is True
+    assert r_bp.blame == "attempt-9"
+    assert r_bp.provenance.producing_attempt == "attempt-9"
+    assert r_bp.soundness_reference == "Bypass-Soundness"
+    assert r_bp.obligations == ["obl-A-implies-B"]
+
+    # Contradiction
+    r_ct = Contradiction(target="s").apply(p)
+    assert r_ct is not None and r_ct.applicable is True
+    assert r_ct.soundness_reference == "Classical.byContradiction"
+    assert r_ct.obligations == ["witness-s"]
+
+    # Inapplicable returns None
+    assert Contradiction(target="missing-target").apply(p) is None
+
+
+def test_bypass_obligation_remains_open_until_discharged():
+    from tpps.reasoning.transform import Bypass, cast_evidence
+    from tpps.core.evidence import Formal, Reviewed
+    p = Plan("bypass-open")
+    src = p.add_stmt(StmtNode("src", Stmt(shape=Shape("From", ())),
+                              evidence=Evidence(formal=Formal.KERNEL, env_hash="lean-hash", reviewed=Reviewed.INDEPENDENT)))
+    bp = Bypass(Shape("From", ()), Shape("To", ()), blame="claim-drift")
+    res = bp.apply(p)
+    assert res is not None
+
+    tgt_node = p.stmts["cast-To"]
+    obl_node = p.stmts[res.obligations[0]]
+
+    # Target statement is not proven by itself: its evidence is empty by default
+    assert tgt_node.evidence.formal is Formal.NONE
+    # Obligation is open
+    assert obl_node.evidence.formal is Formal.NONE
+
+    # cast_evidence requires both source and obligation evidence
+    derived = cast_evidence(src.evidence, obl_node.evidence)
+    assert derived.formal is Formal.NONE  # open obligation caps kernel evidence
+
+    # When obligation is discharged with formal evidence, cast_evidence unlocks it
+    obl_discharged = Evidence(formal=Formal.KERNEL, env_hash="lean-hash")
+    derived_closed = cast_evidence(src.evidence, obl_discharged)
+    assert derived_closed.formal is Formal.KERNEL
+
+
+def test_bypass_obligation_records_source_and_target_shapes():
+    from tpps.reasoning.transform import Bypass
+    p = Plan("bypass-shapes")
+    p.add_stmt(StmtNode("src", Stmt(shape=Shape("From", (Var("x"),)))))
+    result = Bypass(
+        Shape("From", (Var("x"),)), Shape("To", (Var("x"),))
+    ).apply(p)
+    assert result is not None
+    obligation = p.stmts[result.obligations[0]].stmt.shape
+    assert obligation.head == "Implies"
+    assert obligation.args == (
+        Shape("From", (Var("x"),)).term(),
+        Shape("To", (Var("x"),)).term(),
+    )
