@@ -71,11 +71,11 @@ def test_evidence_closure_drives_render_and_commit():
         [conjoin([Evidence(reviewed=Reviewed.INDEPENDENT),
                   Evidence(formal=Formal.KERNEL, kernel_system="lean4+mathlib",
                            env_hash="h", reviewed=Reviewed.TWO_INDEPENDENT)])])
-    store.set("confluent", target_mu)
-    assert is_closed(store.mus["confluent"], requirement)
+    store.set("terminates", target_mu)
+    assert is_closed(store.mus["terminates"], requirement)
 
-    plan.stmts["confluent"].evidence = target_mu
-    text = render(plan, "confluent", requirement)  # closed → textbook by default
+    plan.stmts["terminates"].evidence = target_mu
+    text = render(plan, "terminates", requirement)  # closed → textbook by default
     assert "Status of" not in text
     assert lint_rendered(text, plan) == []
 

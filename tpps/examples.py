@@ -37,14 +37,9 @@ def _saturation_plan(pid: str, active: str) -> Plan:
     r = Var("R")
     p.add_stmt(StmtNode("saturated", Stmt(shape=Shape("Saturated", (r,)))))
     p.add_stmt(StmtNode("active", Stmt(shape=Shape("ActiveDomain", (Const(active),)))))
-    p.add_stmt(StmtNode("confluent", Stmt(shape=Shape("Confluent", (r,)))))
-    p.add_stmt(StmtNode(
-        "obl-inv",
-        Stmt(shape=Shape("ActiveDomainInvariant", (r,), sort="TRS")),
-    ))
+    p.add_stmt(StmtNode("terminates", Stmt(shape=Shape("Terminates", (r,)))))
     p.add_inst(MethodInstance("e-fads", "FiniteActiveDomainSaturation",
-                              ["saturated"], "confluent",
-                              obligations=["obl-inv"], certificates=["no-remove"]))
+                              ["saturated"], "terminates"))
     return p
 
 
@@ -72,7 +67,7 @@ def theorem6_completion():
         lgg, bindings={}, via_lemma="Lemma-5-active-domain-invariance",
         theta_a=sa, theta_b=sb, plan_a="plan-a", plan_b="plan-b",
         conditions=[Condition(CondTag.S, "no-remove")],
-        obligation_templates=[Shape("ActiveDomainInvariant", (Var("R"),))],
+        obligation_templates=[],
         elaborator="(by (lemma active-domain ?R S0) (member GI))",
         soundness="Theorem-6-finite-active-domain-saturation")
 
@@ -87,7 +82,7 @@ def one_way_delete_schema() -> MethodSchema:
     return MethodSchema(
         id=corrected_schema_name("DeleteSaturation"),
         premises=[Shape("Saturated", (Var("R"),))],
-        conclusion=Shape("Confluent", (Var("R"),)),
+        conclusion=Shape("Terminates", (Var("R"),)),
         conditions=[Condition(CondTag.S, "lexicographic-measure",
                               "lexicographic (|{lease-active}|, |GI \\ S|)"),
                     Condition(CondTag.S, "one-way-delete")],

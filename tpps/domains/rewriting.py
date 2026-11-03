@@ -106,11 +106,16 @@ def schema_library() -> SchemaRegistry:
     reg.register(MethodSchema(
         id="FiniteActiveDomainSaturation",
         premises=[Shape("Saturated", (Var("R"),), sort="TRS")],
-        conclusion=Shape("Confluent", (Var("R"),), sort="TRS"),
-        conditions=[Condition(CondTag.S, "no-remove")],
-        obligation_templates=[
-            Shape("ActiveDomainInvariant", (Var("R"),), sort="TRS")
+        conclusion=Shape("Terminates", (Var("R"),), sort="TRS"),
+        conditions=[
+            Condition(CondTag.S, "finite"),
+            Condition(CondTag.S, "headed-antecedents"),
+            Condition(CondTag.S, "extensional-antecedents"),
+            Condition(CondTag.S, "flat-consequents"),
+            Condition(CondTag.S, "ext-range-restricted"),
+            Condition(CondTag.S, "no-remove"),
         ],
+        obligation_templates=[],
         checker=lambda ctx: True,
         elaborator="elab-FiniteActiveDomainSaturation",
         soundness_theorem="Sound-FiniteActiveDomainSaturation",

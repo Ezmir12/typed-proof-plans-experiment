@@ -56,6 +56,7 @@ def test_registry_accepts_explicit_decision_and_preserves_compatibility():
         ),
     )
     assert reg.schemas["trust-test"].trust.status is TrustStatus.REVIEWED
+    assert not reg.usable_in_committed("trust-test")
     reg.promote(
         "trust-test",
         decision=TrustDecision(

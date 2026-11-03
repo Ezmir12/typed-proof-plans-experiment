@@ -99,7 +99,12 @@ def check_instance(plan: Plan, inst: MethodInstance, registry: SchemaRegistry,
             rep.premises_instantiate = False
             rep.diagnostic = "stored substitution conflicts with inferred substitution"
         else:
-            subst = dict(inst.substitution)
+            for name, value in inst.substitution.items():
+                if name in subst and subst[name] != value:
+                    rep.premises_instantiate = False
+                    rep.diagnostic = "stored substitution conflicts with inferred substitution"
+                    break
+                subst[name] = value
 
     # (2) conclusion subsumed by Ψσ (regime-aware).
     concl_shape = plan.stmts[inst.conclusion].stmt.shape
@@ -110,13 +115,17 @@ def check_instance(plan: Plan, inst: MethodInstance, registry: SchemaRegistry,
     rep.conclusion_subsumed = r2.ok
 
     # (3) every side condition has a valid certificate.
-    obligation_heads = {
-        plan.stmts[o].stmt.shape.head for o in inst.obligations
+    checker_context = {
+        "substitution": subst,
+        "premises": _shapes(plan, inst.premises),
+        "obligations": _shapes(plan, inst.obligations),
     }
-    rep.side_conditions_certified = all(
+    structural_ok = (
+        schema.checker is not None and schema.checker(checker_context)
+    )
+    rep.side_conditions_certified = structural_ok and all(
         c.tag is CondTag.S
         or (c.tag is CondTag.C and c.predicate_ref in cert_ok)
-        or (c.tag is CondTag.OBL and c.predicate_ref in obligation_heads)
         for c in schema.conditions
     )
 

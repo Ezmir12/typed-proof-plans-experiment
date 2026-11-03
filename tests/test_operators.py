@@ -49,7 +49,7 @@ def test_analogy_lgg_leaves_free_vars_and_scores():
     b = Plan("b")
     for pid, plan in (("a", a), ("b", b)):
         plan.add_stmt(StmtNode("s", Stmt(shape=Shape("Saturated", (Var("R"),)))))
-        plan.add_stmt(StmtNode("c", Stmt(shape=Shape("Confluent", (Var("R"),)))))
+        plan.add_stmt(StmtNode("c", Stmt(shape=Shape("Terminates", (Var("R"),)))))
         plan.add_inst(MethodInstance(f"e-{pid}", "FiniteActiveDomainSaturation",
                                      ["s"], "c"))
     al = align_by_schema(a, b)
@@ -91,7 +91,7 @@ def test_completion_provenance_and_strategy():
     lgg, _, _ = plan_a_b_lgg()
     assert "Compress(plan-a, plan-b)" in theorem6_completion().provenance
     assert "Lemma-5" in theorem6_completion().provenance
-    assert theorem6_completion().schema.obligation_templates
+    assert theorem6_completion().schema.obligation_templates == []
     s = Strategy("S", lgg, "?EstimateMethod", ["CauchyEstimate"])
     s.add_filler("MaxModulus")
     s.add_filler("MaxModulus")
@@ -124,18 +124,18 @@ def _render_plan():
 def test_renderer_deterministic_registers_and_default():
     plan, reg = _render_plan()
     req = Evidence(reviewed=Reviewed.INDEPENDENT)
-    t1 = render(plan, "confluent", req, Register.TEXTBOOK)
-    assert render(plan, "confluent", req, Register.TEXTBOOK) == t1  # byte-identical
-    ann = render(plan, "confluent", req, Register.ANNOTATED)
-    assert "Status of confluent" in ann
+    t1 = render(plan, "terminates", req, Register.TEXTBOOK)
+    assert render(plan, "terminates", req, Register.TEXTBOOK) == t1  # byte-identical
+    ann = render(plan, "terminates", req, Register.ANNOTATED)
+    assert "Status of terminates" in ann
     assert "Three facts" not in t1  # shared linearization, merged sentences not required here
     # open target defaults to annotated
-    assert "Status of" in render(plan, "confluent", req)
+    assert "Status of" in render(plan, "terminates", req)
     # closed target defaults to textbook
-    plan.stmts["confluent"].evidence = Evidence(
+    plan.stmts["terminates"].evidence = Evidence(
         formal=Formal.KERNEL, kernel_system="lean4+mathlib", env_hash="h",
         reviewed=Reviewed.TWO_INDEPENDENT)
-    assert "Status of" not in render(plan, "confluent", req)
+    assert "Status of" not in render(plan, "terminates", req)
     assert lint_rendered(t1, plan) == []
 
 

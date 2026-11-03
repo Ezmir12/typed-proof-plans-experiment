@@ -37,7 +37,7 @@ class TrustStatus(Enum):
 class TrustRecord:
     status: TrustStatus = TrustStatus.CANDIDATE
     evidence: Evidence = field(default_factory=Evidence)
-    # Bootstrap exception: two-independent review explicitly flagged.
+    # Explicit exception for a named bootstrap policy, never implied by review.
     bootstrap_two_independent: bool = False
     version: int = 1
 
@@ -108,8 +108,8 @@ class SchemaRegistry:
         """Promote a schema through an explicit decision.
 
         New callers should pass ``decision``. The boolean arguments are
-        retained for review-level compatibility; kernel verification requires
-        an explicit artifact-backed decision.
+        retained for compatibility; committed use still requires kernel
+        verification unless a separately named bootstrap policy is enabled.
         """
         s = self.schemas[schema_id]
         from .trust import TrustDecision, can_promote
@@ -143,7 +143,8 @@ class SchemaRegistry:
             decision.status,
             s.trust.evidence,
             bootstrap_two_independent=(
-                decision.status is TrustStatus.REVIEWED
+                bootstrap_two_independent
+                and decision.status is TrustStatus.REVIEWED
             ),
             version=s.trust.version + 1,
         )
@@ -151,5 +152,4 @@ class SchemaRegistry:
 
     def usable_in_committed(self, schema_id: str) -> bool:
         t = self.schemas[schema_id].trust
-        return t.status is TrustStatus.KERNEL_VERIFIED or (
-            t.status is TrustStatus.REVIEWED and t.bootstrap_two_independent)
+        return t.status is TrustStatus.KERNEL_VERIFIED

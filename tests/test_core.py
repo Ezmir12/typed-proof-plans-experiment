@@ -12,7 +12,7 @@ from tpps.core.schema import (CondTag, Condition, MethodSchema, SchemaRegistry,
 from tpps.core.trust import TrustDecision
 from tpps.core.sorts import Attribute, SortDecl, SortRegistry
 from tpps.core.stmt import (App, CheckKind, Const, Shape, Stmt, Var, alpha_eq, bind,
-                            SubstitutionError, apply_subst, is_paper_shape_head,
+                            SubstitutionError, apply_subst,
                             run_check, unify_exact)
 from tpps.reasoning.transform import (AuxiliaryFunction, Bypass, Compress, Contradiction,
                                       FixPoint, GeneralizeSpecialize, SortClashError,
@@ -139,13 +139,6 @@ def test_substitution_does_not_capture_de_bruijn_bound_variables():
     assert alpha_eq(result, bind("forall", "z", App("P", (Var("z"), Const("c")))))
 
 
-def test_paper_shape_head_vocabulary_marker():
-    for head in ("UniqueNF", "Complete", "SupOnCircle", "Equal",
-                 "Extends", "Exists", "ForAll", "Limit"):
-        assert is_paper_shape_head(head)
-    assert not is_paper_shape_head("NonPaperHead")
-
-
 # --- Schemas ---
 def _good_schema():
     return MethodSchema(id="S", premises=[Shape("A", ())], conclusion=Shape("B", ()),
@@ -163,9 +156,16 @@ def test_registry_rejects_incomplete_and_promotes():
     with pytest.raises(Exception):
         reg.promote("S", kernel_verified=False)  # no bootstrap flag
     assert not reg.usable_in_committed("S")
-    reg.promote("S", kernel_verified=False, bootstrap_two_independent=True)
-    assert reg.usable_in_committed("S")
-    assert reg.schemas["S"].trust.bootstrap_two_independent
+    reg.promote(
+        "S",
+        decision=TrustDecision(
+            TrustStatus.REVIEWED,
+            "two independent reviews",
+            reviewer_refs=("reviewer-a", "reviewer-b"),
+        ),
+    )
+    assert not reg.usable_in_committed("S")
+    assert not reg.schemas["S"].trust.bootstrap_two_independent
 
 
 def test_checker_termination_probe():
@@ -273,8 +273,8 @@ def test_atoms_roundtrip():
     q = Plan.from_atoms(p.id, p.to_atoms(), shapes)
     assert set(q.stmts) == set(p.stmts) and set(q.insts) == set(p.insts)
     inst = q.insts["e-fads"]
-    assert inst.premises == ["saturated"] and inst.conclusion == "confluent"
-    assert inst.obligations == ["obl-inv"]
+    assert inst.premises == ["saturated"] and inst.conclusion == "terminates"
+    assert inst.obligations == []
 
 
 # --- Typecheck ---
@@ -292,7 +292,7 @@ def test_typecheck_four_failing_subconditions():
     reg = example_registry()
     base = Plan("t")
     base.add_stmt(StmtNode("ok-a", Stmt(shape=Shape("Saturated", (Var("R"),)))))
-    base.add_stmt(StmtNode("ok-c", Stmt(shape=Shape("Confluent", (Var("R"),)))))
+    base.add_stmt(StmtNode("ok-c", Stmt(shape=Shape("Terminates", (Var("R"),)))))
     base.add_stmt(StmtNode("ok-o", Stmt(shape=Shape("ActiveDomainInvariant", (Var("R"),)))))
     # (1) premises fail
     p1 = Plan("t1")
@@ -300,7 +300,7 @@ def test_typecheck_four_failing_subconditions():
         p1.add_stmt(base.stmts[nid])
     p1.add_stmt(StmtNode("wrong", Stmt(shape=Shape("Bogus", ()))))
     p1.add_inst(MethodInstance("e", "FiniteActiveDomainSaturation",
-                               ["wrong"], "ok-c", ["ok-o"], ["no-remove"]))
+                               ["wrong"], "ok-c"))
     assert not T.check_instance(p1, p1.insts["e"], reg).premises_instantiate
     # (3) missing certificate
     p3 = Plan("t3")
@@ -312,10 +312,13 @@ def test_typecheck_four_failing_subconditions():
     assert not r3.premises_instantiate or not r3.side_conditions_certified
     # (4) missing obligation
     p4 = Plan("t4")
-    for nid in ("ok-a", "ok-c"):
-        p4.add_stmt(base.stmts[nid])
-    p4.add_inst(MethodInstance("e", "FiniteActiveDomainSaturation",
-                               ["ok-a"], "ok-c", [], ["no-remove"]))
+    p4.add_stmt(StmtNode("decreases",
+                         Stmt(shape=Shape("Decreases", (Var("R"),)))))
+    p4.add_stmt(StmtNode("wf",
+                         Stmt(shape=Shape("WF", (Var("O"),)))))
+    p4.add_stmt(base.stmts["ok-c"])
+    p4.add_inst(MethodInstance("e", "WFMeasure",
+                               ["decreases", "wf"], "ok-c"))
     assert not T.check_instance(p4, p4.insts["e"], reg).obligations_present
     # unpromoted schema rejected in committed layer
     reg2 = SchemaRegistry()

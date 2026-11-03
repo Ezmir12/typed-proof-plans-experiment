@@ -160,23 +160,6 @@ def unify_exact(pattern: Term, target: Term, subst: Subst | None = None) -> Subs
 
 # --- Shapes, contexts, sequents ---
 
-# Paper-facing statement-shape heads used across Sections 6-8.
-# This is a vocabulary marker, not a closed-world validator.
-PAPER_SHAPE_HEADS: frozenset[str] = frozenset({
-    "UniqueNF",
-    "Complete",
-    "SupOnCircle",
-    "Equal",
-    "Extends",
-    "Exists",
-    "ForAll",
-    "Limit",
-})
-
-
-def is_paper_shape_head(head: str) -> bool:
-    return head in PAPER_SHAPE_HEADS
-
 @dataclass(frozen=True)
 class Shape:
     head: str

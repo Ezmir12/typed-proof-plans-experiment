@@ -88,6 +88,6 @@ def test_full_contract_accepted(sid):
 
 def test_open_obligations_are_still_well_typed():
     """Obligation nodes present but undischarged: accepted as well-typed."""
-    plan = _contract_plan("FiniteActiveDomainSaturation")
+    plan = _contract_plan("WFMeasure")
     assert T.check_plan(plan, REG).ok
     assert plan.stmts["o0"].evidence.formal.name == "NONE"
