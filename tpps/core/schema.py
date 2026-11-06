@@ -139,9 +139,27 @@ class SchemaRegistry:
                 f"{s.trust.status.value!r} to {decision.status.value!r}"
             )
 
+        evidence = s.trust.evidence
+        if decision.status is TrustStatus.KERNEL_VERIFIED:
+            from .evidence import Formal, Reviewed
+            evidence = Evidence(
+                formal=Formal.KERNEL,
+                env_hash=decision.artifact_ref or "kernel-verified",
+                reviewed=Reviewed.TWO_INDEPENDENT,
+            )
+        elif decision.status is TrustStatus.REVIEWED:
+            from .evidence import Reviewed
+            evidence = Evidence(
+                reviewed=(
+                    Reviewed.TWO_INDEPENDENT
+                    if len(decision.reviewer_refs) >= 2
+                    else Reviewed.INDEPENDENT
+                ),
+            )
+
         s.trust = TrustRecord(
             decision.status,
-            s.trust.evidence,
+            evidence,
             bootstrap_two_independent=(
                 bootstrap_two_independent
                 and decision.status is TrustStatus.REVIEWED
