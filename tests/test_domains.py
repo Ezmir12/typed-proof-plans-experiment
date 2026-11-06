@@ -50,8 +50,9 @@ def test_rewriting_worked_plans_check():
     assert T.check_plan(RW.boolean_confluence_plan(), reg).ok
     assert T.check_plan(RW.list_confluence_plan(), reg).ok
     cast = RW.strategy_independence_cast_plan()
-    assert any(i.schema_ref == "Bypass" for i in cast.insts.values())
-    assert "worker-attempt-7" in cast.insts["cast-Equiv-Equiv"].provenance.producing_attempt
+    assert not any(i.schema_ref == "Bypass" for i in cast.insts.values())
+    assert cast.transforms[-1].kind == "Bypass"
+    assert "worker-attempt-7" in cast.transforms[-1].provenance.producing_attempt
     _, note = RW.toyama_refutation()
     assert "refuted" in note
 

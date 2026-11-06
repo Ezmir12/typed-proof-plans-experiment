@@ -42,6 +42,16 @@ class Role:
     annotation: str = ""
 
 
+@dataclass(frozen=True)
+class TransformRecord:
+    id: str
+    kind: str
+    source: str
+    target: str
+    obligations: tuple[str, ...] = ()
+    provenance: Provenance = field(default_factory=Provenance)
+
+
 @dataclass
 class MethodInstance:
     id: str
@@ -60,6 +70,7 @@ class Plan:
         self.id = plan_id
         self.stmts: dict[str, StmtNode] = {}
         self.insts: dict[str, MethodInstance] = {}
+        self.transforms: list[TransformRecord] = []
         self.roles: list[Role] = []
 
     # -- construction --
@@ -83,6 +94,17 @@ class Plan:
     def graph_errors(self) -> list[str]:
         """Return deterministic structural errors without mutating the plan."""
         errors: list[str] = []
+        for transform in self.transforms:
+            for name, node_id in (("source", transform.source),
+                                  ("target", transform.target),
+                                  *[(f"obligation[{i}]", obligation)
+                                    for i, obligation
+                                    in enumerate(transform.obligations)]):
+                if node_id not in self.stmts:
+                    errors.append(
+                        f"transform {transform.id!r} {name} {node_id!r} "
+                        "does not reference a statement"
+                    )
         for inst_id in sorted(self.insts):
             inst = self.insts[inst_id]
             if inst.conclusion not in self.stmts:
@@ -117,6 +139,10 @@ class Plan:
                 if inst.conclusion == cur and inst.layer is Layer.COMMITTED:
                     stack.extend(inst.premises)
                     stack.extend(inst.obligations)
+            for tr in self.transforms:
+                if tr.target == cur:
+                    stack.append(tr.source)
+                    stack.extend(tr.obligations)
         return seen
 
     def committed_cycle(self) -> list[str] | None:

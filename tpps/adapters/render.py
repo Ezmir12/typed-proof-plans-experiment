@@ -31,6 +31,11 @@ def linearize(plan: Plan, target: str) -> list[str]:
                     visit(p)
                 for o in inst.obligations:
                     visit(o)
+        for tr in plan.transforms:
+            if tr.target == nid:
+                visit(tr.source)
+                for o in tr.obligations:
+                    visit(o)
         order.append(nid)
 
     visit(target)
@@ -52,9 +57,11 @@ def render(plan: Plan, target: str, requirement: Evidence,
     if register is None:
         register = Register.TEXTBOOK if closed else Register.ANNOTATED
     # Obligation ids belonging to an explicit Bypass cast: always read as casts.
-    cast_obls = {o for i in plan.insts.values()
-                 if i.schema_ref == "Bypass" or i.id.startswith("cast-")
-                 for o in i.obligations}
+    cast_obls = {o for tr in plan.transforms if tr.kind == "Bypass" for o in tr.obligations} | {
+        o for i in plan.insts.values()
+        if i.schema_ref == "Bypass" or i.id.startswith("cast-")
+        for o in i.obligations
+    }
     # Every other obligation-linked node is open until discharged: it must
     # read as remaining work, never as an established premise.
     obl_ids = {o for i in plan.insts.values() for o in i.obligations} - cast_obls

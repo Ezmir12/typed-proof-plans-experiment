@@ -123,15 +123,72 @@ def test_decline_and_malformed():
         pass
 
 
-def test_spans_fall_back_and_confidence_clamped():
+def test_invalid_spans_are_rejected_and_confidence_is_clamped():
     import copy
+    import pytest
     payload = copy.deepcopy(WF_PAYLOAD)
     payload["nodes"][0]["source_span"] = "not in the input at all"
     payload["nodes"][0]["confidence"] = 7.5
     ext = LlmExtractor(ScriptedClient([payload]), _registry(), _vocab())
-    cand = ext.extract(NL)
-    assert cand.plan.stmts["t"].provenance.source_span == NL
+    with pytest.raises(ValueError, match="source_span"):
+        ext.extract(NL)
+
+    payload = copy.deepcopy(WF_PAYLOAD)
+    payload["nodes"][0]["confidence"] = 7.5
+    cand = LlmExtractor(ScriptedClient([payload]), _registry(), _vocab()).extract(NL)
     assert cand.plan.stmts["t"].provenance.extraction_confidence == 1.0
+
+
+def test_extractor_rejects_model_authority_and_forbidden_keys():
+    import copy
+    import pytest
+    for forbidden_key in ("trust_status", "trust_decision", "kernel_verified", "artifact_ref"):
+        bad_top = copy.deepcopy(WF_PAYLOAD)
+        bad_top[forbidden_key] = "unauthorized"
+        ext = LlmExtractor(ScriptedClient([bad_top]), _registry(), _vocab())
+        with pytest.raises(ValueError):
+            ext.extract(NL)
+
+    for forbidden_field in ("checker", "soundness_theorem", "elaborator", "kernel_artifact", "evidence"):
+        bad_node = copy.deepcopy(WF_PAYLOAD)
+        bad_node["nodes"][0][forbidden_field] = "hack"
+        ext = LlmExtractor(ScriptedClient([bad_node]), _registry(), _vocab())
+        with pytest.raises(ValueError):
+            ext.extract(NL)
+
+        bad_inst = copy.deepcopy(WF_PAYLOAD)
+        bad_inst["instances"][0][forbidden_field] = "hack"
+        ext = LlmExtractor(ScriptedClient([bad_inst]), _registry(), _vocab())
+        with pytest.raises(ValueError):
+            ext.extract(NL)
+
+
+def test_extracted_nodes_and_instances_are_speculative_with_open_evidence():
+    from tpps.core.plan import Layer
+    from tpps.core.evidence import Formal
+    ext = LlmExtractor(ScriptedClient([WF_PAYLOAD]), _registry(), _vocab())
+    cand = ext.extract(NL)
+    for node in cand.plan.stmts.values():
+        assert node.layer is Layer.SPECULATIVE
+        assert node.evidence.formal is Formal.NONE
+    for inst in cand.plan.insts.values():
+        assert inst.layer is Layer.SPECULATIVE
+
+
+def test_extracted_certificate_names_do_not_grant_certification():
+    import copy
+    payload = copy.deepcopy(WF_PAYLOAD)
+    payload["instances"] = [{
+        "id": "e",
+        "schema": "LPO",
+        "premises": ["d"],
+        "conclusion": "t",
+        "obligations": [],
+        "certificates": ["lpo-oriented"],
+    }]
+    ext = LlmExtractor(ScriptedClient([payload]), _registry(), _vocab())
+    candidate = ext.extract(NL)
+    assert not T.check_plan(candidate.plan, _registry()).ok
 
 
 def test_no_fixture_words_in_extractor():

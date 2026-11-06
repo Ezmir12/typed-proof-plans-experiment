@@ -10,7 +10,8 @@ from enum import Enum, IntEnum
 from typing import Any
 
 from .evidence import Certified, Empirical, Evidence, Formal, Fresh, Reviewed
-from .plan import Layer, MethodInstance, Plan, Provenance, Role, StmtNode
+from .plan import (Layer, MethodInstance, Plan, Provenance, Role, StmtNode,
+                   TransformRecord)
 from .stmt import App, BVar, Binder, Const, CtxEntry, Shape, Stmt, Var
 
 SERIALIZATION_VERSION = 1
@@ -259,6 +260,29 @@ def _decode_instance(value: object) -> MethodInstance:
     )
 
 
+def _encode_transform(transform: TransformRecord) -> dict[str, Any]:
+    return {
+        "id": transform.id,
+        "kind": transform.kind,
+        "source": transform.source,
+        "target": transform.target,
+        "obligations": list(transform.obligations),
+        "provenance": _encode_provenance(transform.provenance),
+    }
+
+
+def _decode_transform(value: object) -> TransformRecord:
+    data = _object(value, "transform")
+    return TransformRecord(
+        _string(data, "id"),
+        _string(data, "kind"),
+        _string(data, "source"),
+        _string(data, "target"),
+        tuple(_strings(data, "obligations")),
+        _decode_provenance(data.get("provenance")),
+    )
+
+
 def encode_plan(plan: Plan) -> dict[str, Any]:
     """Encode a plan deterministically without executable fields."""
     return {
@@ -267,6 +291,7 @@ def encode_plan(plan: Plan) -> dict[str, Any]:
         "id": plan.id,
         "stmts": [_encode_node(plan.stmts[key]) for key in sorted(plan.stmts)],
         "insts": [_encode_instance(plan.insts[key]) for key in sorted(plan.insts)],
+        "transforms": [_encode_transform(transform) for transform in plan.transforms],
         "roles": [
             {"object_ref": role.object_ref, "role_name": role.role_name,
              "annotation": role.annotation}
@@ -299,6 +324,11 @@ def decode_plan(payload: dict) -> Plan:
             plan.add_inst(instance)
         except KeyError as exc:
             raise SerializationError(str(exc)) from exc
+    for value in _list(payload, "transforms"):
+        transform = _decode_transform(value)
+        if any(existing.id == transform.id for existing in plan.transforms):
+            raise SerializationError(f"duplicate transform id: {transform.id!r}")
+        plan.transforms.append(transform)
     for value in _list(payload, "roles"):
         data = _object(value, "role")
         plan.roles.append(Role(

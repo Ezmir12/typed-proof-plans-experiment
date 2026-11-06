@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from tpps.core.plan import Plan, Provenance, StmtNode
+from tpps.core.plan import Layer, Plan, Provenance, StmtNode
 from tpps.core.stmt import Shape, Stmt
 
 
@@ -43,7 +43,8 @@ def build_candidate(plan_id: str, nodes: list[ExtractedNode]) -> CandidatePlan:
         plan.add_stmt(StmtNode(f"n{i}", Stmt(shape=n.shape),
                                provenance=Provenance(
                                    source_span=n.source_span,
-                                   extraction_confidence=n.extraction_confidence)))
+                                   extraction_confidence=n.extraction_confidence),
+                               layer=Layer.SPECULATIVE))
     return CandidatePlan(nodes, plan)
 
 

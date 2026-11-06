@@ -358,7 +358,8 @@ def test_bypass_cast_evidence_cap_and_blame():
                blame="worker-attempt-7")
     res = t.apply(p)
     assert res is not None and res.obligations and "worker-attempt-7" in res.soundness_note
-    assert p.insts["cast-Equiv-Equiv"].obligations == res.obligations
+    assert p.transforms[-1].kind == "Bypass"
+    assert list(p.transforms[-1].obligations) == res.obligations
 
 
 def test_bypass_sort_clash_rejected_at_construction():
@@ -375,8 +376,13 @@ def test_other_transforms_emit_obligations():
     r = AuxiliaryFunction(target="t", construction="g := f/z",
                           new_shape=Shape("GoalG", ())).apply(p)
     assert r.obligations == ["wf-t", "transfer-t"]
-    GeneralizeSpecialize(target="t", subst={"x": Const("c")}).apply(p)
-    assert Compress(schema_ref="S", premises=["t"], conclusion="t").apply(p) is not None
+    before_specialization = p.stmts["t"].stmt.shape.head
+    specialized = GeneralizeSpecialize(
+        target="t", subst={"x": Const("c")}).apply(p)
+    assert specialized is not None and specialized.obligations
+    assert before_specialization == "GoalG"
+    compressed = Compress(schema_ref="S", premises=["t"], conclusion="t").apply(p)
+    assert compressed is not None and compressed.obligations
 
 
 def test_soundness_gates():

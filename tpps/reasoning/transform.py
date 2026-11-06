@@ -6,10 +6,11 @@ induction over proofs is never confused with object-level deduction.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from tpps.core.evidence import Evidence
-from tpps.core.plan import Layer, MethodInstance, Plan, Provenance, StmtNode
+from tpps.core.plan import (Layer, MethodInstance, Plan, Provenance,
+                            StmtNode, TransformRecord)
 from tpps.core.stmt import CtxEntry, Shape, Stmt
 
 
@@ -28,6 +29,10 @@ class TransformResult:
     plan: Plan
     obligations: list[str]  # new stmt-node ids
     soundness_note: str = ""
+    applicable: bool = True
+    blame: str = ""
+    provenance: Provenance = field(default_factory=Provenance)
+    soundness_reference: str = ""
 
 
 class PlanTransform(ABC):
@@ -66,19 +71,47 @@ class Bypass(PlanTransform):
             return None
         obl_id = f"obl-{self.from_shape.head}-implies-{self.to_shape.head}"
         tgt_id = f"cast-{self.to_shape.head}"
-        plan.add_stmt(StmtNode(obl_id, Stmt(shape=Shape(
-            "Implies", (), regime=src.stmt.regime),
-            ), provenance=Provenance(producing_attempt=self.blame)))
+        prov = Provenance(producing_attempt=self.blame)
+        # Explicit open implication obligation phi => psi.
+        # Target node starts open (default Evidence(), not proven by itself).
         plan.add_stmt(StmtNode(
-            tgt_id, Stmt(shape=self.to_shape, regime=self.to_shape.regime),
-            provenance=Provenance(producing_attempt=self.blame)))
-        plan.add_inst(MethodInstance(
-            f"cast-{self.from_shape.head}-{self.to_shape.head}", "Bypass",
-            [src.id], tgt_id, obligations=[obl_id],
-            provenance=Provenance(producing_attempt=self.blame)))
-        return TransformResult(plan, [obl_id],
-                               f"cast {self.from_shape.head} ⇒ {self.to_shape.head}, "
-                               f"blame={self.blame}")
+            obl_id,
+            Stmt(
+                src.stmt.context,
+                Shape(
+                    "Implies",
+                    (self.from_shape.term(), self.to_shape.term()),
+                    regime=src.stmt.regime,
+                ),
+                regime=src.stmt.regime,
+            ),
+            provenance=prov,
+            layer=src.layer,
+        ))
+        plan.add_stmt(StmtNode(
+            tgt_id,
+            Stmt(src.stmt.context, self.to_shape, regime=self.to_shape.regime),
+            provenance=prov,
+            layer=src.layer,
+        ))
+        plan.transforms.append(TransformRecord(
+            id=f"cast-{self.from_shape.head}-{self.to_shape.head}",
+            kind=self.id,
+            source=src.id,
+            target=tgt_id,
+            obligations=(obl_id,),
+            provenance=prov,
+        ))
+        note = f"cast {self.from_shape.head} ⇒ {self.to_shape.head}, blame={self.blame}"
+        return TransformResult(
+            plan=plan,
+            obligations=[obl_id],
+            soundness_note=note,
+            applicable=True,
+            blame=self.blame,
+            provenance=prov,
+            soundness_reference="Bypass-Soundness",
+        )
 
 
 @dataclass
@@ -87,20 +120,55 @@ class Compress(PlanTransform):
     schema_ref: str
     premises: list[str]
     conclusion: str
-    certificates: list[str] = None  # type: ignore[assignment]
+    certificates: list[str] | None = None
     id: str = "Compress"
 
     def apply(self, plan: Plan) -> TransformResult | None:
-        inst = MethodInstance(f"compress-{self.schema_ref}", self.schema_ref,
-                              list(self.premises), self.conclusion,
-                              certificates=list(self.certificates or []))
+        if (self.conclusion not in plan.stmts
+                or any(premise not in plan.stmts for premise in self.premises)):
+            return None
+        prov = Provenance(producing_attempt=f"compress-{self.schema_ref}")
+        obligation_id = f"obl-uniform-{self.schema_ref}"
+        plan.add_stmt(StmtNode(
+            obligation_id,
+            Stmt(shape=Shape("UniformDerivation",
+                             tuple(plan.stmts[p].stmt.shape.term()
+                                   for p in self.premises))),
+            provenance=prov,
+            layer=Layer.COMMITTED,
+        ))
+        inst = MethodInstance(
+            f"compress-{self.schema_ref}",
+            self.schema_ref,
+            list(self.premises),
+            self.conclusion,
+            obligations=[obligation_id],
+            certificates=list(self.certificates or []),
+            provenance=prov,
+            layer=Layer.COMMITTED,
+        )
         plan.add_inst(inst)
-        return TransformResult(plan, [], f"compressed via {self.schema_ref}")
+        plan.transforms.append(TransformRecord(
+            id=f"compress-{self.schema_ref}",
+            kind=self.id,
+            source=self.premises[0] if self.premises else self.conclusion,
+            target=self.conclusion,
+            obligations=(obligation_id,),
+            provenance=prov,
+        ))
+        return TransformResult(
+            plan=plan,
+            obligations=[obligation_id],
+            soundness_note=f"compressed via {self.schema_ref}",
+            applicable=True,
+            provenance=prov,
+            soundness_reference="Compress-UniformDerivation",
+        )
 
 
 @dataclass
 class GeneralizeSpecialize(PlanTransform):
-    """Apply a substitution to a target node's shape."""
+    """Apply a substitution to a target node's shape without in-place mutation."""
     target: str
     subst: dict
     generalize: bool = False
@@ -110,8 +178,47 @@ class GeneralizeSpecialize(PlanTransform):
         node = plan.stmts.get(self.target)
         if node is None:
             return None
-        node.stmt = node.stmt.instantiate(self.subst)
-        return TransformResult(plan, [], "generalize" if self.generalize else "specialize")
+        action = "generalize" if self.generalize else "specialize"
+        prov = Provenance(producing_attempt=f"{action}-{self.target}")
+        specialized_shape = node.stmt.shape.instantiate(self.subst)
+        new_target_id = f"{self.target}-{action}"
+        obligation_id = f"obl-{action}-{self.target}"
+
+        obligation_shape = (
+            Shape("Implies", (specialized_shape.term(), node.stmt.shape.term()),
+                  regime=node.stmt.regime)
+            if self.generalize
+            else Shape("Implies", (node.stmt.shape.term(), specialized_shape.term()),
+                       regime=node.stmt.regime)
+        )
+        plan.add_stmt(StmtNode(
+            obligation_id,
+            Stmt(node.stmt.context, obligation_shape, regime=node.stmt.regime),
+            provenance=prov,
+            layer=node.layer,
+        ))
+        plan.add_stmt(StmtNode(
+            new_target_id,
+            Stmt(node.stmt.context, specialized_shape, regime=node.stmt.regime),
+            provenance=prov,
+            layer=node.layer,
+        ))
+        plan.transforms.append(TransformRecord(
+            id=f"{action}-{self.target}",
+            kind=self.id,
+            source=self.target,
+            target=new_target_id,
+            obligations=(obligation_id,),
+            provenance=prov,
+        ))
+        return TransformResult(
+            plan=plan,
+            obligations=[obligation_id],
+            soundness_note=action,
+            applicable=True,
+            provenance=prov,
+            soundness_reference=f"{action.capitalize()}-Soundness",
+        )
 
 
 @dataclass
@@ -128,8 +235,29 @@ class Contradiction(PlanTransform):
                                             introduced_by=f"{self.id}-{self.target}"),)
         node.stmt = Stmt(ctx, node.stmt.shape, node.stmt.regime)
         wit = f"witness-{self.target}"
-        plan.add_stmt(StmtNode(wit, Stmt(ctx, Shape("Witness", (), regime=node.stmt.regime))))
-        return TransformResult(plan, [wit], "contradiction block with Witness slot")
+        prov = Provenance(producing_attempt=f"{self.id}-{self.target}")
+        plan.add_stmt(StmtNode(
+            wit,
+            Stmt(ctx, Shape("Witness", (), regime=node.stmt.regime)),
+            provenance=prov,
+            layer=node.layer,
+        ))
+        plan.transforms.append(TransformRecord(
+            id=f"{self.id.lower()}-{self.target}",
+            kind=self.id,
+            source=self.target,
+            target=self.target,
+            obligations=(wit,),
+            provenance=prov,
+        ))
+        return TransformResult(
+            plan=plan,
+            obligations=[wit],
+            soundness_note="contradiction block with Witness slot",
+            applicable=True,
+            provenance=prov,
+            soundness_reference="Classical.byContradiction",
+        )
 
 
 @dataclass
@@ -147,8 +275,29 @@ class FixPoint(PlanTransform):
                                             introduced_by=f"{self.id}-{self.target}"),)
         node.stmt = Stmt(ctx, node.stmt.shape, node.stmt.regime)
         tp = f"testpoint-{self.target}"
-        plan.add_stmt(StmtNode(tp, Stmt(ctx, Shape("TestPoint", (), regime=node.stmt.regime))))
-        return TransformResult(plan, [tp], f"fixpoint block, eigenvar {self.eigenvar}")
+        prov = Provenance(producing_attempt=f"{self.id}-{self.target}")
+        plan.add_stmt(StmtNode(
+            tp,
+            Stmt(ctx, Shape("TestPoint", (), regime=node.stmt.regime)),
+            provenance=prov,
+            layer=node.layer,
+        ))
+        plan.transforms.append(TransformRecord(
+            id=f"{self.id.lower()}-{self.target}",
+            kind=self.id,
+            source=self.target,
+            target=self.target,
+            obligations=(tp,),
+            provenance=prov,
+        ))
+        return TransformResult(
+            plan=plan,
+            obligations=[tp],
+            soundness_note=f"fixpoint block, eigenvar {self.eigenvar}",
+            applicable=True,
+            provenance=prov,
+            soundness_reference="FixPoint-Eigenvar",
+        )
 
 
 @dataclass
@@ -169,10 +318,26 @@ class AuxiliaryFunction(PlanTransform):
         node.stmt = Stmt(ctx, self.new_shape, node.stmt.regime)
         wf = self.wellformed_shape or Shape(f"Holo", (), regime=node.stmt.regime)
         wf_id, tr_id = f"wf-{self.target}", f"transfer-{self.target}"
-        plan.add_stmt(StmtNode(wf_id, Stmt(ctx, wf)))
-        plan.add_stmt(StmtNode(tr_id, Stmt(ctx, Shape("Implies", (), regime=node.stmt.regime))))
-        return TransformResult(plan, [wf_id, tr_id],
-                               f"auxiliary {self.construction} with well-formedness + transfer")
+        prov = Provenance(producing_attempt=f"{self.id}-{self.target}")
+        plan.add_stmt(StmtNode(wf_id, Stmt(ctx, wf), provenance=prov, layer=node.layer))
+        plan.add_stmt(StmtNode(tr_id, Stmt(ctx, Shape("Implies", (), regime=node.stmt.regime)),
+                               provenance=prov, layer=node.layer))
+        plan.transforms.append(TransformRecord(
+            id=f"{self.id.lower()}-{self.target}",
+            kind=self.id,
+            source=self.target,
+            target=self.target,
+            obligations=(wf_id, tr_id),
+            provenance=prov,
+        ))
+        return TransformResult(
+            plan=plan,
+            obligations=[wf_id, tr_id],
+            soundness_note=f"auxiliary {self.construction} with well-formedness + transfer",
+            applicable=True,
+            provenance=prov,
+            soundness_reference="AuxiliaryFunction-Transfer",
+        )
 
 
 # Soundness gates: elaborate only when every leg holds; P' closure only after obligations discharge.

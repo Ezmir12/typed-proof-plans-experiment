@@ -151,10 +151,10 @@ def test_complex_analysis_prose_roundtrip():
 def test_bypass_drift_recorded_not_silently_accepted():
     """Set/multiset drift lands as an explicit cast with blame attached."""
     plan = RW.strategy_independence_cast_plan()
-    inst = plan.insts["cast-Equiv-Equiv"]
-    assert inst.schema_ref == "Bypass"
-    assert inst.obligations, "drift must leave the implication obligation open"
-    assert "worker-attempt-7" in inst.provenance.producing_attempt
+    transform = plan.transforms[-1]
+    assert transform.kind == "Bypass"
+    assert transform.obligations, "drift must leave the implication obligation open"
+    assert "worker-attempt-7" in transform.provenance.producing_attempt
     # The cast target can never outrank its open obligation.
     from tpps.reasoning.transform import cast_evidence
     capped = cast_evidence(

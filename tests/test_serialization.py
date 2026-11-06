@@ -1,7 +1,15 @@
 import pytest
 
 from tpps.core.evidence import Evidence, Formal, Reviewed
-from tpps.core.plan import Layer, MethodInstance, Plan, Provenance, Role, StmtNode
+from tpps.core.plan import (
+    Layer,
+    MethodInstance,
+    Plan,
+    Provenance,
+    Role,
+    StmtNode,
+    TransformRecord,
+)
 from tpps.core.serialization import (
     SERIALIZATION_VERSION,
     SerializationError,
@@ -50,6 +58,10 @@ def _plan() -> Plan:
         layer=Layer.COMMITTED,
         provenance=Provenance(producing_attempt="attempt-2"),
     ))
+    plan.transforms.append(TransformRecord(
+        "cast-1", "Bypass", "premise", "conclusion", ("obligation",),
+        Provenance(producing_attempt="attempt-cast"),
+    ))
     plan.roles.append(Role("premise", "Invariant", "finite state"))
     return plan
 
@@ -60,6 +72,8 @@ def test_plan_round_trip_preserves_structure_and_metadata():
     assert structural_diff(original, restored) == []
     assert restored.insts["instance"].premises == ["premise"]
     assert restored.insts["instance"].obligations == ["obligation"]
+    assert len(restored.transforms) == 1
+    assert restored.transforms[0].id == "cast-1"
     assert restored.roles == [Role("premise", "Invariant", "finite state")]
 
 
