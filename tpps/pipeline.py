@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Callable
 
 from tpps.adapters.extract import CandidatePlan, ExtractedNode
+from tpps.core.closure import close_plan
 from tpps.core.evidence import (BOTTOM, Evidence, Reviewed, aggregate, conjoin,
                                 is_closed)
 from tpps.core.plan import Plan, Provenance, StmtNode
@@ -115,19 +116,7 @@ def _primary_target(plan: Plan) -> str:
 
 
 def _aggregate_plan(plan: Plan, registry: SchemaRegistry) -> dict[str, object]:
-    stored = {nid: n.evidence for nid, n in plan.stmts.items()}
-    out: dict[str, object] = {}
-    for nid in plan.stmts:
-        derivs = []
-        for inst in plan.producers(nid):
-            schema = registry.schemas.get(inst.schema_ref)
-            tau = schema.trust.evidence if schema else Evidence()
-            parts = ([tau]
-                     + [stored.get(p, BOTTOM) for p in inst.premises]
-                     + [stored.get(o, BOTTOM) for o in inst.obligations])
-            derivs.append(conjoin(parts))
-        out[nid] = aggregate(stored[nid], derivs)
-    return out
+    return close_plan(plan, registry).evidence
 
 
 def _diagnostics(report) -> list[str]:
@@ -295,7 +284,8 @@ def run_pipeline(nl_text: str, log_dir: str | Path = "logs/runs",
 
     # 3. evidence
     with logger.stage("evidence", {"plan_id": plan.id}) as st:
-        mus = _aggregate_plan(plan, registry)
+        closure_result = close_plan(plan, registry)
+        mus = closure_result.evidence
         per_node = {nid: {"formal": mu.formal.name, "certified": mu.certified.name,
                           "reviewed": mu.reviewed.name, "empirical": mu.empirical.name,
                           "fresh": mu.fresh.name} for nid, mu in mus.items()}
@@ -303,7 +293,13 @@ def run_pipeline(nl_text: str, log_dir: str | Path = "logs/runs",
         target = _primary_target(plan)
         target_closed = closure.get(target, False)
         st.set_output({"per_node_evidence": per_node, "closure_status": closure,
-                       "target": target, "target_closed": target_closed})
+                       "target": target, "target_closed": target_closed,
+                       "support": {nid: sorted(nodes)
+                                   for nid, nodes in closure_result.support.items()},
+                       "refuted": sorted(closure_result.refuted),
+                       "inconsistent": sorted(closure_result.inconsistent),
+                       "open_nodes": sorted(closure_result.open_nodes),
+                       "diagnostics": closure_result.diagnostics})
 
     # 4. creative (always logged; runs only when triggered)
     with logger.stage("creative", {"plan_id": plan.id}) as st:
