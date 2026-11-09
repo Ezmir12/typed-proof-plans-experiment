@@ -308,13 +308,12 @@ def run_pipeline(nl_text: str, log_dir: str | Path = "logs/runs",
         induced: list[dict] = []
         if reason is not None:
             st.note("trigger_reason", reason)
-            index = [(sid, s.conclusion) for sid, s in registry.schemas.items()]
             known = {s.conclusion.head for s in registry.schemas.values()}
             heads = {n.stmt.shape.head for n in plan.stmts.values()}
             for nid, node in plan.stmts.items():
                 if plan.producers(nid):
                     continue
-                for res in backward_chain(node.stmt.shape, index, known, heads):
+                for res in backward_chain(node.stmt.shape, registry, known, heads):
                     residuals.append({"shape": res.shape.head,
                                       "origin_schema": res.origin_schema,
                                       "critic_class": classify_residual(res)})
