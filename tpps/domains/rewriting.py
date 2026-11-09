@@ -9,7 +9,8 @@ from tpps.reasoning.creative import PREMISE_TABLE
 from tpps.core.plan import Layer, MethodInstance, Plan, Provenance, StmtNode
 from tpps.core.schema import CondTag, Condition, MethodSchema, SchemaRegistry, TrustRecord, TrustStatus
 from tpps.core.sorts import Attribute, SortDecl, SortRegistry
-from tpps.core.stmt import Shape, Stmt, Var
+from tpps.core.stmt import (App, BVar, Binder, Const, Shape, Stmt, Var,
+                            apply_subst, unify_exact)
 
 ROLES = ("RankingFunction", "Certificate", "CriticalPair", "Witness",
          "Invariant", "Simulation", "Decomposition", "Abstraction")
@@ -126,25 +127,102 @@ def schema_library() -> SchemaRegistry:
 
 
 # --- MM2 operational semantics ---
-def mm2_step(state: frozenset, rule: dict, theta: dict) -> frozenset | None:
+
+from dataclasses import dataclass, field
+from typing import Any, Callable
+
+
+def _apply_subst_item(item: Any, theta: dict) -> Any:
+    if hasattr(item, "substitute"):
+        return item.substitute(theta)
+    if hasattr(item, "instantiate"):
+        return item.instantiate(theta)
+    if isinstance(item, (Var, App, BVar, Const, Binder)):
+        return apply_subst(item, theta)
+    return item
+
+
+@dataclass(frozen=True)
+class MM2Rule:
+    """Formal MeTTa/MORK-2 (MM2) rewrite rule: Delta-minus -> Delta-plus under guards."""
+
+    id: str
+    antecedents_ext: tuple[Any, ...]  # Delta-minus (facts consumed)
+    antecedents_grounded: tuple[Callable[[dict], bool], ...] = ()  # Guard predicates
+    consequents: tuple[Any, ...] = ()  # Delta-plus (facts produced)
+    conditions: tuple[str, ...] = ()  # Structural conditions (e.g. "no-remove", "flat-consequents")
+
+    @property
+    def is_no_remove(self) -> bool:
+        """Theorem 6 condition: Delta-minus is empty (no facts removed)."""
+        return len(self.antecedents_ext) == 0 or "no-remove" in self.conditions
+
+
+def mm2_step(state: frozenset, rule: MM2Rule | dict, theta: dict) -> frozenset | None:
     """S →_{ρ,θ} S' := (S \\ Δ⁻θ) ∪ Δ⁺θ, requiring extensional-antecedent
     match, grounded-antecedent satisfaction, and net change (S' ≠ S)."""
-    delta_minus = {a.substitute(theta) if hasattr(a, "substitute") else a
-                   for a in rule.get("antecedents_ext", [])}
-    grounded = rule.get("antecedents_grounded", [])
-    if not all(g(theta) if callable(g) else True for g in grounded):
+    if isinstance(rule, MM2Rule):
+        ext_antecedents = rule.antecedents_ext
+        grounded_guards = rule.antecedents_grounded
+        consequents = rule.consequents
+    else:
+        ext_antecedents = rule.get("antecedents_ext", [])
+        grounded_guards = rule.get("antecedents_grounded", [])
+        consequents = rule.get("consequents", [])
+
+    delta_minus = {_apply_subst_item(a, theta) for a in ext_antecedents}
+
+    if not all(g(theta) if callable(g) else True for g in grounded_guards):
         return None
+
     if not delta_minus.issubset(set(state)):
-        # θ must match every extensional antecedent against S
-        matched = {a for a in delta_minus if a in set(state)}
-        if matched != delta_minus:
-            return None
-    delta_plus = {c.substitute(theta) if hasattr(c, "substitute") else c
-                  for c in rule.get("consequents", [])}
+        return None
+
+    delta_plus = {_apply_subst_item(c, theta) for c in consequents}
     new_state = (set(state) - delta_minus) | delta_plus
     if frozenset(new_state) == state:
         return None  # idle: no net change
     return frozenset(new_state)
+
+
+def match_and_step(state: frozenset, rule: MM2Rule) -> list[tuple[dict, frozenset]]:
+    """Match extensional antecedents of rule against finite state, check guards,
+    and return all valid (theta, next_state) transitions."""
+    from tpps.core.stmt import Shape, unify_exact
+
+    ext = list(rule.antecedents_ext)
+    if not ext:
+        # Monotonic rule without extensional antecedents
+        res = mm2_step(state, rule, {})
+        return [({}, res)] if res is not None else []
+
+    matches: list[dict] = []
+
+    def _match_ext(idx: int, current_subst: dict, used_elements: set) -> None:
+        if idx >= len(ext):
+            matches.append(current_subst)
+            return
+        pat = ext[idx]
+        pat_term = pat.term() if isinstance(pat, Shape) else pat
+        for elem in state:
+            if elem in used_elements:
+                continue
+            elem_term = elem.term() if isinstance(elem, Shape) else elem
+            if isinstance(pat_term, (Var, App, BVar, Const, Binder)) and isinstance(elem_term, (Var, App, BVar, Const, Binder)):
+                sub = unify_exact(pat_term, elem_term, current_subst)
+                if sub is not None:
+                    _match_ext(idx + 1, sub, used_elements | {elem})
+            elif pat_term == elem_term:
+                _match_ext(idx + 1, current_subst, used_elements | {elem})
+
+    _match_ext(0, {}, set())
+
+    results: list[tuple[dict, frozenset]] = []
+    for theta in matches:
+        nxt = mm2_step(state, rule, theta)
+        if nxt is not None and (theta, nxt) not in results:
+            results.append((theta, nxt))
+    return results
 
 
 # --- Worked plans ---

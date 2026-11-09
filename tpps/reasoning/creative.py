@@ -23,42 +23,12 @@ class PlnAnnotation:
 
 # --- Abduction ---
 
-CRITIC_CLASSES = ("missing lemma", "missing library entry", "bad decomposition",
-                  "impossible branch", "overstrong target", "representation mismatch",
-                  "auxiliary-construction request")
-
-
-@dataclass(frozen=True)
-class TypedResidual:
-    """Canonical residual type for abduction results."""
-    shape: Shape
-    origin_schema: str  # schema whose premise could not be produced
-    context: str = ""
-
-    @property
-    def producer_schema(self) -> str:
-        """Alias used by some docs/plans; canonical field remains origin_schema."""
-        return self.origin_schema
-
-
-def backward_chain(target: Shape, conclusion_index: list[tuple[str, Shape]],
-                   known_heads: set[str], plan_heads: set[str]) -> list[TypedResidual]:
-    """One backward-chaining step: instantiate premises via schema conclusions.
-
-    Premise shapes producible by nothing and absent from the plan become
-    typed abductive residuals.
-    """
-    residuals = []
-    producers = {sid for sid, concl in conclusion_index
-                 if unify_exact(concl.term(), target.term()) is not None}
-    for sid, concl in conclusion_index:
-        if sid not in producers:
-            continue
-        for prem in _premises_of(sid):
-            if prem.head not in known_heads and prem.head not in plan_heads:
-                residuals.append(TypedResidual(prem, sid))
-    return residuals
-
+from .backward_chain import (
+    CRITIC_CLASSES,
+    TypedResidual,
+    backward_chain,
+    classify_residual,
+)
 
 # Premise table, extended by domain modules at import time.
 PREMISE_TABLE: dict[str, list[Shape]] = {}
@@ -66,24 +36,6 @@ PREMISE_TABLE: dict[str, list[Shape]] = {}
 
 def _premises_of(schema_id: str) -> list[Shape]:
     return PREMISE_TABLE.get(schema_id, [])
-
-
-def classify_residual(residual: TypedResidual, hint: str = "") -> str:
-    """Critic classification into the seven fixed classes."""
-    h = (hint + " " + residual.shape.head).lower()
-    if "librar" in h or "generaliz" in h:
-        return "missing library entry"
-    if "decompos" in h:
-        return "bad decomposition"
-    if "impossible" in h or "refut" in h:
-        return "impossible branch"
-    if "overstrong" in h:
-        return "overstrong target"
-    if "represent" in h or "mismatch" in h:
-        return "representation mismatch"
-    if "auxiliar" in h or "construction" in h:
-        return "auxiliary-construction request"
-    return "missing lemma"
 
 
 # --- Analogy: align + anti-unify + score ---
