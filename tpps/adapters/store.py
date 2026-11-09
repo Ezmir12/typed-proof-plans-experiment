@@ -1,7 +1,8 @@
-"""Mock MORK-style store + commit-gate typing pass.
+"""Deterministic test double for proof store and commit-gate typing passes.
 
-Append-only, single-owner, content-addressed, atomic leases.
-TPPS implements no locking of its own.
+NOTE: This is an in-memory mock store intended exclusively for local, deterministic
+unit testing. It is NOT the durable external store. Durable persistence and journal
+authority are provided by `persistent-atp` (see `tpps.adapters.persistent_atp`).
 """
 from __future__ import annotations
 
@@ -19,6 +20,7 @@ class CommitRecord:
 
 
 class MockStore:
+    """In-memory deterministic test double for storage and commit validation."""
     def __init__(self, owner: str = "typed-proof-plans") -> None:
         self.owner = owner
         self.atoms: dict[str, str] = {}  # content-hash -> atom
