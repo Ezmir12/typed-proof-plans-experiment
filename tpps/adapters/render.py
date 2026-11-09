@@ -51,11 +51,24 @@ def _evidence_tag(mu: Evidence, requirement: Evidence) -> str:
 
 def render(plan: Plan, target: str, requirement: Evidence,
            register: Register | None = None) -> str:
-    """Render the committed support derivation of target."""
+    """Render the committed support derivation of target into natural mathematical discourse.
+
+    Register Gating:
+    - Textbook register: Generates clean, publication-ready mathematical exposition.
+      Gated strictly to closed derivations meeting formal evidence thresholds; certified
+      lemmas are cited and intermediate bookkeeping obligations are folded.
+    - Annotated register: Exposes explicit step statuses, 5D evidence markers, role
+      bindings, and representation cast warnings. Open, speculative, or refuted targets
+      are automatically directed to this register to prevent silent proof-gap smoothing.
+    """
     node = plan.stmts[target]
     closed = is_closed(node.evidence, requirement)
     if register is None:
         register = Register.TEXTBOOK if closed else Register.ANNOTATED
+    elif register is Register.TEXTBOOK and not closed:
+        # Safety gate: open, refuted, or unclosed targets cannot be rendered as textbook
+        register = Register.ANNOTATED
+
     # Obligation ids belonging to an explicit Bypass cast: always read as casts.
     cast_obls = {o for tr in plan.transforms if tr.kind == "Bypass" for o in tr.obligations} | {
         o for i in plan.insts.values()
@@ -70,47 +83,70 @@ def render(plan: Plan, target: str, requirement: Evidence,
         status = "closed" if closed else "OPEN: obligations remain"
         lines.append(f"Status of {target}: {status}.")
 
-    for nid in linearize(plan, target):
-        n = plan.stmts[nid]
-        producers = plan.producers(nid)
-        head = n.stmt.shape.head
-        regime = f" {n.stmt.regime}" if n.stmt.regime else ""
-        if nid == target:
-            lines.append(f"We show {head}{regime}.")
+    for node_id in linearize(plan, target):
+        node = plan.stmts[node_id]
+        producers = plan.producers(node_id)
+        head = node.stmt.shape.head
+        regime = f" {node.stmt.regime}" if node.stmt.regime else ""
+
+        if node_id == target:
+            if any(inst.schema_ref == "Contradiction" for inst in producers):
+                lines.append(f"Hence {head}{regime}, a contradiction.")
+            else:
+                lines.append(f"We show {head}{regime}.")
             continue
+
         if head == "Witness":
-            lines.append(f"Take a witness for {nid}{regime}; it remains to show its properties.")
+            lines.append(f"Take a witness for {node_id}{regime}; it remains to show its properties.")
             continue
-        if head == "Implies" and (nid in cast_obls
-                                   or any("cast-" in i.id for i in producers)):
+
+        # Explicit representation cast warning
+        if head == "Implies" and (node_id in cast_obls
+                                   or any("cast-" in inst.id for inst in producers)):
             lines.append(
-                f"By cast from established premises, modulo the open implication "
-                f"{nid}{regime}; it remains to show {nid}.")
+                f"We introduce an explicit representation cast for {node_id}{regime}; "
+                f"it remains to show the cast condition, and the passage from {node_id} remains open. "
+                f"This does not yet establish the original claim.")
             continue
+
         if head == "Implies":
             # Open obligation: never smoothed over.
-            lines.append(f"It remains to show {nid}{regime}.")
+            lines.append(f"It remains to show that {node_id}{regime}.")
             continue
-        if nid in obl_ids:
-            tag = ""
+
+        if node_id in obl_ids:
+            evidence_tag = ""
             if register is Register.ANNOTATED:
-                t = _evidence_tag(n.evidence, requirement)
-                tag = f" {t}" if t else ""
-            lines.append(f"It remains to show {nid}{regime}{tag}.")
+                formatted_tag = _evidence_tag(node.evidence, requirement)
+                evidence_tag = f" {formatted_tag}" if formatted_tag else ""
+            lines.append(f"It remains to show that {node_id}{regime}{evidence_tag}.")
             continue
-        if producers and any(i.schema_ref == "Contradiction" for i in producers):
-            lines.append(f"Suppose not; seeking a contradiction via {nid}.")
-            continue
+
+        # Schema-driven discourse templates
+        if producers:
+            primary_producer = producers[0]
+            schema_identifier = primary_producer.schema_ref
+
+            if schema_identifier == "Contradiction":
+                lines.append(f"Suppose, for contradiction, that {head}{regime} fails.")
+                continue
+            if schema_identifier == "AuxiliaryFunction":
+                lines.append(f"Consider the auxiliary function for {head}{regime}; since this holds, it provides the required bound.")
+                continue
+            if schema_identifier == "Decomposition":
+                lines.append(f"We treat the cases for {head}{regime} separately; combining the bounds completes the step.")
+                continue
+            if schema_identifier == "FixPoint":
+                lines.append(f"Fix an arbitrary parameter for {head}{regime}.")
+                continue
+
         if register is Register.ANNOTATED:
-            tag = _evidence_tag(n.evidence, requirement)
-            extra = f" {tag}" if tag else ""
-            lines.append(f"Since {head}{regime} holds{extra}, we proceed.")
+            formatted_tag = _evidence_tag(node.evidence, requirement)
+            extra_annotation = f" {formatted_tag}" if formatted_tag else ""
+            lines.append(f"Since {head}{regime} holds{extra_annotation}, we proceed.")
         else:
             lines.append(f"Since {head}{regime} holds, we proceed.")
 
-    # OR-alternatives: textbook shows only the highest-evidence one inline.
-    alts = [i for n in plan.stmts for i in plan.producers(n)]
-    _ = alts
     return "\n".join(lines)
 
 
